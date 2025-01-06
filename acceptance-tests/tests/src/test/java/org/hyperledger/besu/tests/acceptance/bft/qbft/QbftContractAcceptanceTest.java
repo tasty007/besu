@@ -1,5 +1,5 @@
 /*
- * Copyright Hyperledger Besu Contributors.
+ * Copyright contributors to Hyperledger Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -14,13 +14,13 @@
  */
 package org.hyperledger.besu.tests.acceptance.bft.qbft;
 
-import org.hyperledger.besu.tests.acceptance.dsl.AcceptanceTestBaseJunit5;
+import org.hyperledger.besu.tests.acceptance.dsl.AcceptanceTestBase;
 import org.hyperledger.besu.tests.acceptance.dsl.account.Account;
 import org.hyperledger.besu.tests.acceptance.dsl.node.BesuNode;
 
 import org.junit.jupiter.api.Test;
 
-public class QbftContractAcceptanceTest extends AcceptanceTestBaseJunit5 {
+public class QbftContractAcceptanceTest extends AcceptanceTestBase {
 
   @Test
   public void shouldMineOnMultipleNodesEvenWhenClusterContainsNonValidator() throws Exception {

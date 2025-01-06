@@ -17,27 +17,29 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.methods;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcApis;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.JsonRpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.miner.MinerChangeTargetGasLimit;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.miner.MinerGetExtraData;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.miner.MinerGetMinGasPrice;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.miner.MinerGetMinPriorityFee;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.miner.MinerSetCoinbase;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.miner.MinerSetEtherbase;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.miner.MinerSetExtraData;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.miner.MinerSetMinGasPrice;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.miner.MinerSetMinPriorityFee;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.miner.MinerStart;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.miner.MinerStop;
 import org.hyperledger.besu.ethereum.blockcreation.MiningCoordinator;
-import org.hyperledger.besu.ethereum.core.MiningParameters;
+import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 
 import java.util.Map;
 
 public class MinerJsonRpcMethods extends ApiGroupJsonRpcMethods {
 
   private final MiningCoordinator miningCoordinator;
-  private final MiningParameters miningParameters;
+  private final MiningConfiguration miningConfiguration;
 
   public MinerJsonRpcMethods(
-      final MiningParameters miningParameters, final MiningCoordinator miningCoordinator) {
-    this.miningParameters = miningParameters;
+      final MiningConfiguration miningConfiguration, final MiningCoordinator miningCoordinator) {
+    this.miningConfiguration = miningConfiguration;
     this.miningCoordinator = miningCoordinator;
   }
 
@@ -55,9 +57,11 @@ public class MinerJsonRpcMethods extends ApiGroupJsonRpcMethods {
         minerSetCoinbase,
         new MinerSetEtherbase(minerSetCoinbase),
         new MinerChangeTargetGasLimit(miningCoordinator),
-        new MinerGetMinPriorityFee(miningParameters),
-        new MinerSetMinPriorityFee(miningParameters),
-        new MinerGetMinGasPrice(miningParameters),
-        new MinerSetMinGasPrice(miningParameters));
+        new MinerGetMinPriorityFee(miningConfiguration),
+        new MinerSetMinPriorityFee(miningConfiguration),
+        new MinerGetMinGasPrice(miningConfiguration),
+        new MinerSetMinGasPrice(miningConfiguration),
+        new MinerGetExtraData(miningConfiguration),
+        new MinerSetExtraData(miningConfiguration));
   }
 }

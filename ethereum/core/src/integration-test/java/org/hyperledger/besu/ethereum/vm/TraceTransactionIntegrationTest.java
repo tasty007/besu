@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.vm;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.entry;
 
+import org.hyperledger.besu.config.GenesisConfig;
 import org.hyperledger.besu.crypto.KeyPair;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.TransactionType;
@@ -32,11 +33,13 @@ import org.hyperledger.besu.ethereum.debug.TraceFrame;
 import org.hyperledger.besu.ethereum.debug.TraceOptions;
 import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.evm.account.Account;
+import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
 import java.util.List;
@@ -67,16 +70,20 @@ public class TraceTransactionIntegrationTest {
 
   @BeforeEach
   public void setUp() {
-    final ExecutionContextTestFixture contextTestFixture = ExecutionContextTestFixture.create();
+    final ExecutionContextTestFixture contextTestFixture =
+        ExecutionContextTestFixture.builder(GenesisConfig.fromResource("/genesis-it.json")).build();
     genesisBlock = contextTestFixture.getGenesis();
     blockchain = contextTestFixture.getBlockchain();
     worldStateArchive = contextTestFixture.getStateArchive();
     final ProtocolSchedule protocolSchedule = contextTestFixture.getProtocolSchedule();
-    transactionProcessor =
-        protocolSchedule
-            .getByBlockHeader(new BlockHeaderTestFixture().number(0L).buildHeader())
-            .getTransactionProcessor();
-    blockHashLookup = new CachingBlockHashLookup(genesisBlock.getHeader(), blockchain);
+    final ProtocolSpec protocolSpec =
+        protocolSchedule.getByBlockHeader(new BlockHeaderTestFixture().number(0L).buildHeader());
+
+    transactionProcessor = protocolSpec.getTransactionProcessor();
+    blockHashLookup =
+        protocolSpec
+            .getBlockHashProcessor()
+            .createBlockHashLookup(blockchain, genesisBlock.getHeader());
   }
 
   @Test
@@ -100,7 +107,6 @@ public class TraceTransactionIntegrationTest {
     final WorldUpdater createTransactionUpdater = worldState.updater();
     TransactionProcessingResult result =
         transactionProcessor.processTransaction(
-            blockchain,
             createTransactionUpdater,
             genesisBlockHeader,
             createTransaction,
@@ -119,7 +125,7 @@ public class TraceTransactionIntegrationTest {
 
     // Now call the transaction to execute the SSTORE.
     final DebugOperationTracer tracer =
-        new DebugOperationTracer(new TraceOptions(true, true, true));
+        new DebugOperationTracer(new TraceOptions(true, true, true), false);
     final Transaction executeTransaction =
         Transaction.builder()
             .type(TransactionType.FRONTIER)
@@ -133,7 +139,6 @@ public class TraceTransactionIntegrationTest {
     final WorldUpdater storeUpdater = worldState.updater();
     result =
         transactionProcessor.processTransaction(
-            blockchain,
             storeUpdater,
             genesisBlockHeader,
             executeTransaction,
@@ -166,13 +171,12 @@ public class TraceTransactionIntegrationTest {
   @Test
   public void shouldTraceContractCreation() {
     final DebugOperationTracer tracer =
-        new DebugOperationTracer(new TraceOptions(true, true, true));
+        new DebugOperationTracer(new TraceOptions(true, true, true), false);
     final Transaction transaction =
         Transaction.readFrom(
             new BytesValueRLPInput(Bytes.fromHexString(CONTRACT_CREATION_TX), false));
     final BlockHeader genesisBlockHeader = genesisBlock.getHeader();
     transactionProcessor.processTransaction(
-        blockchain,
         worldStateArchive
             .getMutable(genesisBlockHeader.getStateRoot(), genesisBlockHeader.getHash())
             .get()
@@ -181,7 +185,7 @@ public class TraceTransactionIntegrationTest {
         transaction,
         genesisBlockHeader.getCoinbase(),
         tracer,
-        new CachingBlockHashLookup(genesisBlockHeader, blockchain),
+        blockHashLookup,
         false,
         Wei.ZERO);
 

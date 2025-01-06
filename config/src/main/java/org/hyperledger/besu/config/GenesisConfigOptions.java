@@ -243,6 +243,27 @@ public interface GenesisConfigOptions {
   OptionalLong getCancunTime();
 
   /**
+   * Gets cancun EOF time.
+   *
+   * @return the cancun EOF time
+   */
+  OptionalLong getCancunEOFTime();
+
+  /**
+   * Gets prague time.
+   *
+   * @return the prague time
+   */
+  OptionalLong getPragueTime();
+
+  /**
+   * Gets Osaka time.
+   *
+   * @return the osaka time
+   */
+  OptionalLong getOsakaTime();
+
+  /**
    * Gets future eips time.
    *
    * @return the future eips time
@@ -498,10 +519,38 @@ public interface GenesisConfigOptions {
   boolean isZeroBaseFee();
 
   /**
+   * Force a Base Fee as Gas Price network to used with London/EIP-1559.
+   *
+   * @return true, if you want the next block to use the base fee as gas price.
+   */
+  boolean isFixedBaseFee();
+
+  /**
+   * The withdrawal request predeploy address
+   *
+   * @return the withdrawal request predeploy address
+   */
+  Optional<Address> getWithdrawalRequestContractAddress();
+
+  /**
    * The deposit contract address that should be in the logger field in Receipt of Deposit
    * transaction
    *
    * @return the deposit address
    */
   Optional<Address> getDepositContractAddress();
+
+  /**
+   * The consolidation request contract address
+   *
+   * @return the consolidation request contract address
+   */
+  Optional<Address> getConsolidationRequestContractAddress();
+
+  /**
+   * The blob schedule is a list of hardfork names and their associated target and max blob values.
+   *
+   * @return the blob schedule
+   */
+  Optional<BlobScheduleOptions> getBlobScheduleOptions();
 }

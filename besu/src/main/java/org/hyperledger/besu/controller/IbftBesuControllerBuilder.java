@@ -16,7 +16,6 @@ package org.hyperledger.besu.controller;
 
 import org.hyperledger.besu.config.BftConfigOptions;
 import org.hyperledger.besu.config.BftFork;
-import org.hyperledger.besu.config.GenesisConfigOptions;
 import org.hyperledger.besu.consensus.common.BftValidatorOverrides;
 import org.hyperledger.besu.consensus.common.EpochManager;
 import org.hyperledger.besu.consensus.common.ForksSchedule;
@@ -61,7 +60,7 @@ import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.chain.MinedBlockObserver;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
-import org.hyperledger.besu.ethereum.core.MiningParameters;
+import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.Util;
 import org.hyperledger.besu.ethereum.eth.EthProtocol;
 import org.hyperledger.besu.ethereum.eth.SnapProtocol;
@@ -75,6 +74,7 @@ import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.plugin.services.BesuEvents;
 import org.hyperledger.besu.util.Subscribers;
 
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -95,6 +95,9 @@ public class IbftBesuControllerBuilder extends BftBesuControllerBuilder {
   private ForksSchedule<BftConfigOptions> forksSchedule;
   private ValidatorPeers peers;
 
+  /** Default Constructor */
+  public IbftBesuControllerBuilder() {}
+
   @Override
   protected Supplier<BftExtraDataCodec> bftExtraDataCodec() {
     return Suppliers.memoize(IbftExtraDataCodec::new);
@@ -102,15 +105,17 @@ public class IbftBesuControllerBuilder extends BftBesuControllerBuilder {
 
   @Override
   protected void prepForBuild() {
-    bftConfig = configOptionsSupplier.get().getBftConfigOptions();
+    bftConfig = genesisConfigOptions.getBftConfigOptions();
     bftEventQueue = new BftEventQueue(bftConfig.getMessageQueueLimit());
-    forksSchedule = IbftForksSchedulesFactory.create(configOptionsSupplier.get());
+    forksSchedule = IbftForksSchedulesFactory.create(genesisConfigOptions);
   }
 
   @Override
   protected JsonRpcMethods createAdditionalJsonRpcMethodFactory(
-      final ProtocolContext protocolContext) {
-    return new IbftJsonRpcMethods(protocolContext);
+      final ProtocolContext protocolContext,
+      final ProtocolSchedule protocolSchedule,
+      final MiningConfiguration miningConfiguration) {
+    return new IbftJsonRpcMethods(protocolContext, protocolSchedule, miningConfiguration);
   }
 
   @Override
@@ -136,7 +141,7 @@ public class IbftBesuControllerBuilder extends BftBesuControllerBuilder {
       final ProtocolSchedule protocolSchedule,
       final ProtocolContext protocolContext,
       final TransactionPool transactionPool,
-      final MiningParameters miningParameters,
+      final MiningConfiguration miningConfiguration,
       final SyncState syncState,
       final EthProtocolManager ethProtocolManager) {
     final MutableBlockchain blockchain = protocolContext.getBlockchain();
@@ -151,7 +156,7 @@ public class IbftBesuControllerBuilder extends BftBesuControllerBuilder {
             protocolContext,
             bftProtocolSchedule,
             forksSchedule,
-            miningParameters,
+            miningConfiguration,
             localAddress,
             bftExtraDataCodec().get(),
             ethProtocolManager.ethContext().getScheduler());
@@ -178,7 +183,10 @@ public class IbftBesuControllerBuilder extends BftBesuControllerBuilder {
             Util.publicKeyToAddress(nodeKey.getPublicKey()),
             proposerSelector,
             uniqueMessageMulticaster,
-            new RoundTimer(bftEventQueue, bftConfig.getRequestTimeoutSeconds(), bftExecutors),
+            new RoundTimer(
+                bftEventQueue,
+                Duration.ofSeconds(bftConfig.getRequestTimeoutSeconds()),
+                bftExecutors),
             new BlockTimer(bftEventQueue, forksSchedule, bftExecutors, clock),
             blockCreatorFactory,
             clock);
@@ -234,13 +242,29 @@ public class IbftBesuControllerBuilder extends BftBesuControllerBuilder {
             blockchain,
             bftEventQueue);
 
-    if (syncState.isInitialSyncPhaseDone()) {
-      LOG.info("Starting IBFT mining coordinator");
-      ibftMiningCoordinator.enable();
-      ibftMiningCoordinator.start();
-    } else {
-      LOG.info("IBFT mining coordinator not starting while initial sync in progress");
-    }
+    // Update the next block period in seconds according to the transition schedule
+    protocolContext
+        .getBlockchain()
+        .observeBlockAdded(
+            o ->
+                miningConfiguration.setBlockPeriodSeconds(
+                    forksSchedule
+                        .getFork(o.getBlock().getHeader().getNumber() + 1)
+                        .getValue()
+                        .getBlockPeriodSeconds()));
+
+    syncState.subscribeSyncStatus(
+        syncStatus -> {
+          if (syncState.syncTarget().isPresent()) {
+            // We're syncing so stop doing other stuff
+            LOG.info("Stopping IBFT mining coordinator while we are syncing");
+            ibftMiningCoordinator.stop();
+          } else {
+            LOG.info("Starting IBFT mining coordinator following sync");
+            ibftMiningCoordinator.enable();
+            ibftMiningCoordinator.start();
+          }
+        });
 
     syncState.subscribeCompletionReached(
         new BesuEvents.InitialSyncCompletionListener() {
@@ -273,12 +297,16 @@ public class IbftBesuControllerBuilder extends BftBesuControllerBuilder {
   @Override
   protected ProtocolSchedule createProtocolSchedule() {
     return IbftProtocolScheduleBuilder.create(
-        configOptionsSupplier.get(),
+        genesisConfigOptions,
         forksSchedule,
         privacyParameters,
         isRevertReasonEnabled,
         bftExtraDataCodec().get(),
-        evmConfiguration);
+        evmConfiguration,
+        miningConfiguration,
+        badBlockManager,
+        isParallelTxProcessingEnabled,
+        metricsSystem);
   }
 
   @Override
@@ -295,12 +323,11 @@ public class IbftBesuControllerBuilder extends BftBesuControllerBuilder {
       final Blockchain blockchain,
       final WorldStateArchive worldStateArchive,
       final ProtocolSchedule protocolSchedule) {
-    final GenesisConfigOptions configOptions = configOptionsSupplier.get();
-    final BftConfigOptions ibftConfig = configOptions.getBftConfigOptions();
+    final BftConfigOptions ibftConfig = genesisConfigOptions.getBftConfigOptions();
     final EpochManager epochManager = new EpochManager(ibftConfig.getEpochLength());
 
     final BftValidatorOverrides validatorOverrides =
-        convertIbftForks(configOptions.getTransitions().getIbftForks());
+        convertIbftForks(genesisConfigOptions.getTransitions().getIbftForks());
 
     return new BftContext(
         BlockValidatorProvider.forkingValidatorProvider(

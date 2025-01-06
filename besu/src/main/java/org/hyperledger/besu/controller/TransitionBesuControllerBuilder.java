@@ -1,5 +1,5 @@
 /*
- * Copyright contributors to Hyperledger Besu
+ * Copyright contributors to Hyperledger Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -14,27 +14,24 @@
  */
 package org.hyperledger.besu.controller;
 
-import org.hyperledger.besu.config.GenesisConfigFile;
-import org.hyperledger.besu.config.GenesisConfigOptions;
+import org.hyperledger.besu.config.GenesisConfig;
 import org.hyperledger.besu.consensus.merge.MergeContext;
 import org.hyperledger.besu.consensus.merge.PostMergeContext;
 import org.hyperledger.besu.consensus.merge.TransitionBackwardSyncContext;
 import org.hyperledger.besu.consensus.merge.TransitionContext;
 import org.hyperledger.besu.consensus.merge.TransitionProtocolSchedule;
 import org.hyperledger.besu.consensus.merge.blockcreation.TransitionCoordinator;
-import org.hyperledger.besu.consensus.qbft.pki.PkiBlockCreationConfiguration;
 import org.hyperledger.besu.cryptoservices.NodeKey;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ConsensusContext;
-import org.hyperledger.besu.ethereum.ConsensusContextFactory;
 import org.hyperledger.besu.ethereum.GasLimitCalculator;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.blockcreation.MiningCoordinator;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
-import org.hyperledger.besu.ethereum.core.MiningParameters;
+import org.hyperledger.besu.ethereum.core.ImmutableMiningConfiguration;
+import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.PrivacyParameters;
-import org.hyperledger.besu.ethereum.core.Synchronizer;
 import org.hyperledger.besu.ethereum.eth.EthProtocolConfiguration;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.EthMessages;
@@ -42,6 +39,7 @@ import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.manager.EthProtocolManager;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.manager.MergePeerFilter;
+import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutor;
 import org.hyperledger.besu.ethereum.eth.peervalidation.PeerValidator;
 import org.hyperledger.besu.ethereum.eth.sync.DefaultSynchronizer;
 import org.hyperledger.besu.ethereum.eth.sync.PivotBlockSelector;
@@ -50,17 +48,15 @@ import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BackwardSyncContext;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
+import org.hyperledger.besu.ethereum.forkid.ForkIdManager;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.storage.StorageProvider;
-import org.hyperledger.besu.ethereum.trie.forest.pruner.Pruner;
-import org.hyperledger.besu.ethereum.trie.forest.pruner.PrunerConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
-import org.hyperledger.besu.ethereum.worldstate.WorldStateStorage;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.ObservableMetricsSystem;
 import org.hyperledger.besu.plugin.services.permissioning.NodeMessagePermissioningProvider;
-import org.hyperledger.besu.plugin.services.txselection.PluginTransactionSelectorFactory;
 
 import java.math.BigInteger;
 import java.nio.file.Path;
@@ -105,7 +101,7 @@ public class TransitionBesuControllerBuilder extends BesuControllerBuilder {
       final ProtocolSchedule protocolSchedule,
       final ProtocolContext protocolContext,
       final TransactionPool transactionPool,
-      final MiningParameters miningParameters,
+      final MiningConfiguration miningConfiguration,
       final SyncState syncState,
       final EthProtocolManager ethProtocolManager) {
 
@@ -115,14 +111,15 @@ public class TransitionBesuControllerBuilder extends BesuControllerBuilder {
 
     // PoA consensus mines by default, get consensus-specific mining parameters for
     // TransitionCoordinator:
-    MiningParameters transitionMiningParameters =
-        preMergeBesuControllerBuilder.getMiningParameterOverrides(miningParameters);
+    MiningConfiguration transitionMiningConfiguration =
+        preMergeBesuControllerBuilder.getMiningParameterOverrides(miningConfiguration);
 
     // construct a transition backward sync context
     BackwardSyncContext transitionBackwardsSyncContext =
         new TransitionBackwardSyncContext(
             protocolContext,
             transitionProtocolSchedule,
+            syncConfig,
             metricsSystem,
             ethProtocolManager.ethContext(),
             syncState,
@@ -134,14 +131,20 @@ public class TransitionBesuControllerBuilder extends BesuControllerBuilder {
                 transitionProtocolSchedule.getPreMergeSchedule(),
                 protocolContext,
                 transactionPool,
-                MiningParameters.MINING_DISABLED,
+                ImmutableMiningConfiguration.builder()
+                    .from(miningConfiguration)
+                    .mutableInitValues(
+                        ImmutableMiningConfiguration.MutableInitValues.builder()
+                            .isMiningEnabled(false)
+                            .build())
+                    .build(),
                 syncState,
                 ethProtocolManager),
             mergeBesuControllerBuilder.createTransitionMiningCoordinator(
                 transitionProtocolSchedule,
                 protocolContext,
                 transactionPool,
-                transitionMiningParameters,
+                transitionMiningConfiguration,
                 syncState,
                 transitionBackwardsSyncContext,
                 ethProtocolManager.ethContext().getScheduler()));
@@ -160,7 +163,8 @@ public class TransitionBesuControllerBuilder extends BesuControllerBuilder {
       final EthMessages ethMessages,
       final EthScheduler scheduler,
       final List<PeerValidator> peerValidators,
-      final Optional<MergePeerFilter> mergePeerFilter) {
+      final Optional<MergePeerFilter> mergePeerFilter,
+      final ForkIdManager forkIdManager) {
     return mergeBesuControllerBuilder.createEthProtocolManager(
         protocolContext,
         synchronizerConfiguration,
@@ -171,7 +175,8 @@ public class TransitionBesuControllerBuilder extends BesuControllerBuilder {
         ethMessages,
         scheduler,
         peerValidators,
-        mergePeerFilter);
+        mergePeerFilter,
+        forkIdManager);
   }
 
   @Override
@@ -188,16 +193,9 @@ public class TransitionBesuControllerBuilder extends BesuControllerBuilder {
   protected ProtocolContext createProtocolContext(
       final MutableBlockchain blockchain,
       final WorldStateArchive worldStateArchive,
-      final ProtocolSchedule protocolSchedule,
-      final ConsensusContextFactory consensusContextFactory,
-      final Optional<PluginTransactionSelectorFactory> transactionSelectorFactory) {
+      final ConsensusContext consensusContext) {
     final ProtocolContext protocolContext =
-        super.createProtocolContext(
-            blockchain,
-            worldStateArchive,
-            protocolSchedule,
-            consensusContextFactory,
-            transactionSelectorFactory);
+        super.createProtocolContext(blockchain, worldStateArchive, consensusContext);
     transitionProtocolSchedule.setProtocolContext(protocolContext);
     return protocolContext;
   }
@@ -221,30 +219,28 @@ public class TransitionBesuControllerBuilder extends BesuControllerBuilder {
   }
 
   @Override
-  protected Synchronizer createSynchronizer(
+  protected DefaultSynchronizer createSynchronizer(
       final ProtocolSchedule protocolSchedule,
-      final WorldStateStorage worldStateStorage,
+      final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final ProtocolContext protocolContext,
-      final Optional<Pruner> maybePruner,
       final EthContext ethContext,
+      final PeerTaskExecutor peerTaskExecutor,
       final SyncState syncState,
       final EthProtocolManager ethProtocolManager,
       final PivotBlockSelector pivotBlockSelector) {
 
     DefaultSynchronizer sync =
-        (DefaultSynchronizer)
-            super.createSynchronizer(
-                protocolSchedule,
-                worldStateStorage,
-                protocolContext,
-                maybePruner,
-                ethContext,
-                syncState,
-                ethProtocolManager,
-                pivotBlockSelector);
-    final GenesisConfigOptions maybeForTTD = configOptionsSupplier.get();
+        super.createSynchronizer(
+            protocolSchedule,
+            worldStateStorageCoordinator,
+            protocolContext,
+            ethContext,
+            peerTaskExecutor,
+            syncState,
+            ethProtocolManager,
+            pivotBlockSelector);
 
-    if (maybeForTTD.getTerminalTotalDifficulty().isPresent()) {
+    if (genesisConfigOptions.getTerminalTotalDifficulty().isPresent()) {
       LOG.info(
           "TTD present, creating DefaultSynchronizer that stops propagating after finalization");
       protocolContext
@@ -255,6 +251,7 @@ public class TransitionBesuControllerBuilder extends BesuControllerBuilder {
     return sync;
   }
 
+  @SuppressWarnings("UnusedVariable")
   private void initTransitionWatcher(
       final ProtocolContext protocolContext, final TransitionCoordinator composedCoordinator) {
 
@@ -304,9 +301,9 @@ public class TransitionBesuControllerBuilder extends BesuControllerBuilder {
   }
 
   @Override
-  public BesuControllerBuilder genesisConfigFile(final GenesisConfigFile genesisConfig) {
-    super.genesisConfigFile(genesisConfig);
-    return propagateConfig(z -> z.genesisConfigFile(genesisConfig));
+  public BesuControllerBuilder genesisConfig(final GenesisConfig genesisConfig) {
+    super.genesisConfig(genesisConfig);
+    return propagateConfig(z -> z.genesisConfig(genesisConfig));
   }
 
   @Override
@@ -330,9 +327,9 @@ public class TransitionBesuControllerBuilder extends BesuControllerBuilder {
   }
 
   @Override
-  public BesuControllerBuilder miningParameters(final MiningParameters miningParameters) {
-    super.miningParameters(miningParameters);
-    return propagateConfig(z -> z.miningParameters(miningParameters));
+  public BesuControllerBuilder miningParameters(final MiningConfiguration miningConfiguration) {
+    super.miningParameters(miningConfiguration);
+    return propagateConfig(z -> z.miningParameters(miningConfiguration));
   }
 
   @Override
@@ -361,13 +358,6 @@ public class TransitionBesuControllerBuilder extends BesuControllerBuilder {
   }
 
   @Override
-  public BesuControllerBuilder pkiBlockCreationConfiguration(
-      final Optional<PkiBlockCreationConfiguration> pkiBlockCreationConfiguration) {
-    super.pkiBlockCreationConfiguration(pkiBlockCreationConfiguration);
-    return propagateConfig(z -> z.pkiBlockCreationConfiguration(pkiBlockCreationConfiguration));
-  }
-
-  @Override
   public BesuControllerBuilder dataDirectory(final Path dataDirectory) {
     super.dataDirectory(dataDirectory);
     return propagateConfig(z -> z.dataDirectory(dataDirectory));
@@ -393,22 +383,10 @@ public class TransitionBesuControllerBuilder extends BesuControllerBuilder {
   }
 
   @Override
-  public BesuControllerBuilder isPruningEnabled(final boolean isPruningEnabled) {
-    super.isPruningEnabled(isPruningEnabled);
-    return propagateConfig(z -> z.isPruningEnabled(isPruningEnabled));
-  }
-
-  @Override
-  public BesuControllerBuilder pruningConfiguration(final PrunerConfiguration prunerConfiguration) {
-    super.pruningConfiguration(prunerConfiguration);
-    return propagateConfig(z -> z.pruningConfiguration(prunerConfiguration));
-  }
-
-  @Override
-  public BesuControllerBuilder genesisConfigOverrides(
-      final Map<String, String> genesisConfigOverrides) {
-    super.genesisConfigOverrides(genesisConfigOverrides);
-    return propagateConfig(z -> z.genesisConfigOverrides(genesisConfigOverrides));
+  public BesuControllerBuilder isParallelTxProcessingEnabled(
+      final boolean isParallelTxProcessingEnabled) {
+    super.isParallelTxProcessingEnabled(isParallelTxProcessingEnabled);
+    return propagateConfig(z -> z.isParallelTxProcessingEnabled(isParallelTxProcessingEnabled));
   }
 
   @Override
@@ -436,9 +414,9 @@ public class TransitionBesuControllerBuilder extends BesuControllerBuilder {
     return propagateConfig(z -> z.dataStorageConfiguration(dataStorageConfiguration));
   }
 
-  private BesuControllerBuilder propagateConfig(final Consumer<BesuControllerBuilder> toPropogate) {
-    toPropogate.accept(preMergeBesuControllerBuilder);
-    toPropogate.accept(mergeBesuControllerBuilder);
+  private BesuControllerBuilder propagateConfig(final Consumer<BesuControllerBuilder> toPropagate) {
+    toPropagate.accept(preMergeBesuControllerBuilder);
+    toPropagate.accept(mergeBesuControllerBuilder);
     return this;
   }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright Hyperledger Besu Contributors.
+ * Copyright contributors to Hyperledger Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -23,18 +23,18 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
-import org.hyperledger.besu.ethereum.core.MiningParameters;
+import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 public class MinerGetMinPriorityFeeTest {
-  MiningParameters miningParameters = mock(MiningParameters.class);
+  MiningConfiguration miningConfiguration = mock(MiningConfiguration.class);
   private MinerGetMinPriorityFee method;
 
   @BeforeEach
   public void setUp() {
-    method = new MinerGetMinPriorityFee(miningParameters);
+    method = new MinerGetMinPriorityFee(miningConfiguration);
   }
 
   @Test
@@ -44,7 +44,8 @@ public class MinerGetMinPriorityFeeTest {
     final JsonRpcRequestContext request =
         new JsonRpcRequestContext(new JsonRpcRequest("2.0", method.getName(), new Object[] {}));
 
-    when(miningParameters.getMinPriorityFeePerGas()).thenReturn(Wei.fromHexString(minPriorityFee));
+    when(miningConfiguration.getMinPriorityFeePerGas())
+        .thenReturn(Wei.fromHexString(minPriorityFee));
 
     final JsonRpcResponse expected =
         new JsonRpcSuccessResponse(request.getRequest().getId(), minPriorityFee);

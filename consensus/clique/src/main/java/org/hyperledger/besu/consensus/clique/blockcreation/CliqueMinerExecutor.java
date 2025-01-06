@@ -14,10 +14,12 @@
  */
 package org.hyperledger.besu.consensus.clique.blockcreation;
 
+import org.hyperledger.besu.config.CliqueConfigOptions;
 import org.hyperledger.besu.consensus.clique.CliqueContext;
 import org.hyperledger.besu.consensus.clique.CliqueExtraData;
 import org.hyperledger.besu.consensus.common.ConsensusHelpers;
 import org.hyperledger.besu.consensus.common.EpochManager;
+import org.hyperledger.besu.consensus.common.ForksSchedule;
 import org.hyperledger.besu.cryptoservices.NodeKey;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.ethereum.ProtocolContext;
@@ -26,7 +28,7 @@ import org.hyperledger.besu.ethereum.blockcreation.AbstractMinerExecutor;
 import org.hyperledger.besu.ethereum.chain.MinedBlockObserver;
 import org.hyperledger.besu.ethereum.chain.PoWObserver;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
-import org.hyperledger.besu.ethereum.core.MiningParameters;
+import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.Util;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
@@ -48,7 +50,7 @@ public class CliqueMinerExecutor extends AbstractMinerExecutor<CliqueBlockMiner>
   private final Address localAddress;
   private final NodeKey nodeKey;
   private final EpochManager epochManager;
-  private final boolean createEmptyBlocks;
+  private final ForksSchedule<CliqueConfigOptions> forksSchedule;
 
   /**
    * Instantiates a new Clique miner executor.
@@ -60,7 +62,7 @@ public class CliqueMinerExecutor extends AbstractMinerExecutor<CliqueBlockMiner>
    * @param miningParams the mining params
    * @param blockScheduler the block scheduler
    * @param epochManager the epoch manager
-   * @param createEmptyBlocks whether clique should allow the creation of empty blocks.
+   * @param forksSchedule the clique transitions
    * @param ethScheduler the scheduler for asynchronous block creation tasks
    */
   public CliqueMinerExecutor(
@@ -68,10 +70,10 @@ public class CliqueMinerExecutor extends AbstractMinerExecutor<CliqueBlockMiner>
       final ProtocolSchedule protocolSchedule,
       final TransactionPool transactionPool,
       final NodeKey nodeKey,
-      final MiningParameters miningParams,
+      final MiningConfiguration miningParams,
       final AbstractBlockScheduler blockScheduler,
       final EpochManager epochManager,
-      final boolean createEmptyBlocks,
+      final ForksSchedule<CliqueConfigOptions> forksSchedule,
       final EthScheduler ethScheduler) {
     super(
         protocolContext,
@@ -83,7 +85,7 @@ public class CliqueMinerExecutor extends AbstractMinerExecutor<CliqueBlockMiner>
     this.nodeKey = nodeKey;
     this.localAddress = Util.publicKeyToAddress(nodeKey.getPublicKey());
     this.epochManager = epochManager;
-    this.createEmptyBlocks = createEmptyBlocks;
+    this.forksSchedule = forksSchedule;
     miningParams.setCoinbase(localAddress);
   }
 
@@ -95,13 +97,12 @@ public class CliqueMinerExecutor extends AbstractMinerExecutor<CliqueBlockMiner>
     final Function<BlockHeader, CliqueBlockCreator> blockCreator =
         (header) ->
             new CliqueBlockCreator(
-                miningParameters,
+                miningConfiguration,
                 this::calculateExtraData,
                 transactionPool,
                 protocolContext,
                 protocolSchedule,
                 nodeKey,
-                header,
                 epochManager,
                 ethScheduler);
 
@@ -113,12 +114,12 @@ public class CliqueMinerExecutor extends AbstractMinerExecutor<CliqueBlockMiner>
         blockScheduler,
         parentHeader,
         localAddress,
-        createEmptyBlocks);
+        forksSchedule);
   }
 
   @Override
   public Optional<Address> getCoinbase() {
-    return miningParameters.getCoinbase();
+    return miningConfiguration.getCoinbase();
   }
 
   /**
@@ -133,7 +134,7 @@ public class CliqueMinerExecutor extends AbstractMinerExecutor<CliqueBlockMiner>
 
     final Bytes vanityDataToInsert =
         ConsensusHelpers.zeroLeftPad(
-            miningParameters.getExtraData(), CliqueExtraData.EXTRA_VANITY_LENGTH);
+            miningConfiguration.getExtraData(), CliqueExtraData.EXTRA_VANITY_LENGTH);
     // Building ON TOP of canonical head, if the next block is epoch, include validators.
     if (epochManager.isEpochBlock(parentHeader.getNumber() + 1)) {
 

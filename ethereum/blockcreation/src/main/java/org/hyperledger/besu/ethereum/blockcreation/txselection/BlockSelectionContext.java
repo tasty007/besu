@@ -1,5 +1,5 @@
 /*
- * Copyright Hyperledger Besu Contributors.
+ * Copyright contributors to Hyperledger Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -17,17 +17,19 @@ package org.hyperledger.besu.ethereum.blockcreation.txselection;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.GasLimitCalculator;
-import org.hyperledger.besu.ethereum.core.MiningParameters;
+import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.ProcessableBlockHeader;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
+import org.hyperledger.besu.ethereum.mainnet.blockhash.BlockHashProcessor;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 
 public record BlockSelectionContext(
-    MiningParameters miningParameters,
+    MiningConfiguration miningConfiguration,
     GasCalculator gasCalculator,
     GasLimitCalculator gasLimitCalculator,
-    ProcessableBlockHeader processableBlockHeader,
+    BlockHashProcessor blockHashProcessor,
+    ProcessableBlockHeader pendingBlockHeader,
     FeeMarket feeMarket,
     Wei blobGasPrice,
     Address miningBeneficiary,

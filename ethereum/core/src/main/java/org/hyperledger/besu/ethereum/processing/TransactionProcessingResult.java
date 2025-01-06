@@ -18,7 +18,6 @@ import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
 import org.hyperledger.besu.evm.log.Log;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -50,13 +49,15 @@ public class TransactionProcessingResult
 
   private final Bytes output;
 
+  private Optional<Boolean> isProcessedInParallel = Optional.empty();
+
   private final ValidationResult<TransactionInvalidReason> validationResult;
   private final Optional<Bytes> revertReason;
 
   public static TransactionProcessingResult invalid(
       final ValidationResult<TransactionInvalidReason> validationResult) {
     return new TransactionProcessingResult(
-        Status.INVALID, new ArrayList<>(), -1, -1, Bytes.EMPTY, validationResult, Optional.empty());
+        Status.INVALID, List.of(), -1, -1, Bytes.EMPTY, validationResult, Optional.empty());
   }
 
   public static TransactionProcessingResult failed(
@@ -66,7 +67,7 @@ public class TransactionProcessingResult
       final Optional<Bytes> revertReason) {
     return new TransactionProcessingResult(
         Status.FAILED,
-        new ArrayList<>(),
+        List.of(),
         gasUsedByTransaction,
         gasRemaining,
         Bytes.EMPTY,
@@ -196,6 +197,25 @@ public class TransactionProcessingResult
   }
 
   /**
+   * Set isProcessedInParallel to the value in parameter
+   *
+   * @param isProcessedInParallel new value of isProcessedInParallel
+   */
+  public void setIsProcessedInParallel(final Optional<Boolean> isProcessedInParallel) {
+    this.isProcessedInParallel = isProcessedInParallel;
+  }
+
+  /**
+   * Returns a flag that indicates if the transaction was executed in parallel
+   *
+   * @return Optional of Boolean, the value of the boolean is true if the transaction was executed
+   *     in parallel
+   */
+  public Optional<Boolean> getIsProcessedInParallel() {
+    return isProcessedInParallel;
+  }
+
+  /**
    * Returns the reason why a transaction was reverted (if applicable).
    *
    * @return the revert reason.
@@ -203,5 +223,32 @@ public class TransactionProcessingResult
   @Override
   public Optional<Bytes> getRevertReason() {
     return revertReason;
+  }
+
+  @Override
+  public Optional<String> getInvalidReason() {
+    return (validationResult.isValid()
+        ? Optional.empty()
+        : Optional.of(validationResult.getErrorMessage()));
+  }
+
+  @Override
+  public String toString() {
+    return "TransactionProcessingResult{"
+        + "status="
+        + status
+        + ", estimateGasUsedByTransaction="
+        + estimateGasUsedByTransaction
+        + ", gasRemaining="
+        + gasRemaining
+        + ", logs="
+        + logs
+        + ", output="
+        + output
+        + ", validationResult="
+        + validationResult
+        + ", revertReason="
+        + revertReason
+        + '}';
   }
 }

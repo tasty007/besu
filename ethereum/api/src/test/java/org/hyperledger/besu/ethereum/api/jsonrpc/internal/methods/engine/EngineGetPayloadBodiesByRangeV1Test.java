@@ -1,5 +1,5 @@
 /*
- * Copyright Hyperledger Besu Contributors.
+ * Copyright contributors to Hyperledger Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -33,7 +33,6 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponseType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.BlockResultFactory;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EngineGetPayloadBodiesResultV1;
@@ -41,6 +40,7 @@ import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.TransactionTestFixture;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
+import org.hyperledger.besu.plugin.services.rpc.RpcResponseType;
 
 import java.util.Collections;
 import java.util.List;
@@ -179,7 +179,6 @@ public class EngineGetPayloadBodiesByRangeV1Test {
         new BlockBody(
             List.of(new TransactionTestFixture().createTransaction(sig.generateKeyPair())),
             Collections.emptyList(),
-            Optional.empty(),
             Optional.empty());
     when(blockchain.getChainHeadBlockNumber()).thenReturn(Long.valueOf(130));
     when(blockchain.getBlockBody(blockHash1)).thenReturn(Optional.of(preShanghaiBlockBody));
@@ -214,15 +213,13 @@ public class EngineGetPayloadBodiesByRangeV1Test {
                 new TransactionTestFixture().createTransaction(sig.generateKeyPair()),
                 new TransactionTestFixture().createTransaction(sig.generateKeyPair())),
             Collections.emptyList(),
-            Optional.of(List.of(withdrawal)),
-            Optional.empty());
+            Optional.of(List.of(withdrawal)));
 
     final BlockBody shanghaiBlockBody2 =
         new BlockBody(
             List.of(new TransactionTestFixture().createTransaction(sig.generateKeyPair())),
             Collections.emptyList(),
-            Optional.of(List.of(withdrawal2)),
-            Optional.empty());
+            Optional.of(List.of(withdrawal2)));
     when(blockchain.getChainHeadBlockNumber()).thenReturn(Long.valueOf(130));
     when(blockchain.getBlockBody(blockHash1)).thenReturn(Optional.of(shanghaiBlockBody));
     when(blockchain.getBlockBody(blockHash2)).thenReturn(Optional.of(shanghaiBlockBody2));
@@ -252,8 +249,7 @@ public class EngineGetPayloadBodiesByRangeV1Test {
                 new TransactionTestFixture().createTransaction(sig.generateKeyPair()),
                 new TransactionTestFixture().createTransaction(sig.generateKeyPair())),
             Collections.emptyList(),
-            Optional.of(List.of(withdrawal)),
-            Optional.empty());
+            Optional.of(List.of(withdrawal)));
     when(blockchain.getChainHeadBlockNumber()).thenReturn(Long.valueOf(123));
     when(blockchain.getBlockBody(blockHash1)).thenReturn(Optional.of(shanghaiBlockBody));
     when(blockchain.getBlockHashByNumber(123)).thenReturn(Optional.of(blockHash1));
@@ -276,20 +272,17 @@ public class EngineGetPayloadBodiesByRangeV1Test {
         new BlockBody(
             List.of(new TransactionTestFixture().createTransaction(sig.generateKeyPair())),
             Collections.emptyList(),
-            Optional.of(List.of(withdrawal)),
-            Optional.empty());
+            Optional.of(List.of(withdrawal)));
     final BlockBody shanghaiBlockBody2 =
         new BlockBody(
             List.of(new TransactionTestFixture().createTransaction(sig.generateKeyPair())),
             Collections.emptyList(),
-            Optional.of(List.of(withdrawal)),
-            Optional.empty());
+            Optional.of(List.of(withdrawal)));
     final BlockBody shanghaiBlockBody3 =
         new BlockBody(
             List.of(new TransactionTestFixture().createTransaction(sig.generateKeyPair())),
             Collections.emptyList(),
-            Optional.of(List.of(withdrawal)),
-            Optional.empty());
+            Optional.of(List.of(withdrawal)));
     when(blockchain.getChainHeadBlockNumber()).thenReturn(Long.valueOf(125));
     when(blockchain.getBlockBody(blockHash1)).thenReturn(Optional.of(shanghaiBlockBody));
     when(blockchain.getBlockBody(blockHash2)).thenReturn(Optional.of(shanghaiBlockBody2));
@@ -344,7 +337,7 @@ public class EngineGetPayloadBodiesByRangeV1Test {
   }
 
   private EngineGetPayloadBodiesResultV1 fromSuccessResp(final JsonRpcResponse resp) {
-    assertThat(resp.getType()).isEqualTo(JsonRpcResponseType.SUCCESS);
+    assertThat(resp.getType()).isEqualTo(RpcResponseType.SUCCESS);
     return Optional.of(resp)
         .map(JsonRpcSuccessResponse.class::cast)
         .map(JsonRpcSuccessResponse::getResult)
@@ -353,7 +346,7 @@ public class EngineGetPayloadBodiesByRangeV1Test {
   }
 
   private JsonRpcError fromErrorResp(final JsonRpcResponse resp) {
-    assertThat(resp.getType()).isEqualTo(JsonRpcResponseType.ERROR);
+    assertThat(resp.getType()).isEqualTo(RpcResponseType.ERROR);
     return Optional.of(resp)
         .map(JsonRpcErrorResponse.class::cast)
         .map(JsonRpcErrorResponse::getError)

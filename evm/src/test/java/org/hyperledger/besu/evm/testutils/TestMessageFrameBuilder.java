@@ -20,6 +20,7 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.evm.Code;
+import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.code.CodeV0;
 import org.hyperledger.besu.evm.frame.BlockValues;
 import org.hyperledger.besu.evm.frame.MessageFrame;
@@ -30,7 +31,6 @@ import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.function.Function;
 
 import org.apache.tuweni.bytes.Bytes;
 
@@ -54,8 +54,9 @@ public class TestMessageFrameBuilder {
   private int pc = 0;
   private int section = 0;
   private final List<Bytes> stackItems = new ArrayList<>();
-  private Optional<Function<Long, Hash>> blockHashLookup = Optional.empty();
+  private Optional<BlockHashLookup> blockHashLookup = Optional.empty();
   private Bytes memory = Bytes.EMPTY;
+  private boolean isStatic = false;
 
   public TestMessageFrameBuilder worldUpdater(final WorldUpdater worldUpdater) {
     this.worldUpdater = Optional.of(worldUpdater);
@@ -102,7 +103,7 @@ public class TestMessageFrameBuilder {
     return this;
   }
 
-  TestMessageFrameBuilder inputData(final Bytes inputData) {
+  public TestMessageFrameBuilder inputData(final Bytes inputData) {
     this.inputData = inputData;
     return this;
   }
@@ -132,13 +133,18 @@ public class TestMessageFrameBuilder {
     return this;
   }
 
-  public TestMessageFrameBuilder blockHashLookup(final Function<Long, Hash> blockHashLookup) {
+  public TestMessageFrameBuilder blockHashLookup(final BlockHashLookup blockHashLookup) {
     this.blockHashLookup = Optional.of(blockHashLookup);
     return this;
   }
 
   public TestMessageFrameBuilder memory(final Bytes memory) {
     this.memory = memory;
+    return this;
+  }
+
+  public TestMessageFrameBuilder isStatic(final boolean isStatic) {
+    this.isStatic = isStatic;
     return this;
   }
 
@@ -161,8 +167,10 @@ public class TestMessageFrameBuilder {
             .blockValues(blockValues.orElseGet(() -> new FakeBlockValues(1337)))
             .completer(c -> {})
             .miningBeneficiary(Address.ZERO)
-            .blockHashLookup(blockHashLookup.orElse(number -> Hash.hash(Words.longBytes(number))))
+            .blockHashLookup(
+                blockHashLookup.orElse((__, number) -> Hash.hash(Words.longBytes(number))))
             .maxStackSize(maxStackSize)
+            .isStatic(isStatic)
             .build();
     frame.setPC(pc);
     frame.setSection(section);

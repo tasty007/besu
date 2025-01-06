@@ -1,5 +1,5 @@
 /*
- * Copyright Hyperledger Besu Contributors.
+ * Copyright contributors to Hyperledger Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -18,6 +18,10 @@ import static org.hyperledger.besu.ethereum.eth.transactions.TransactionAddedRes
 import static org.hyperledger.besu.ethereum.eth.transactions.TransactionAddedResult.ALREADY_KNOWN;
 import static org.hyperledger.besu.ethereum.eth.transactions.TransactionAddedResult.NONCE_TOO_FAR_IN_FUTURE_FOR_SENDER;
 import static org.hyperledger.besu.ethereum.eth.transactions.TransactionAddedResult.REJECTED_UNDERPRICED_REPLACEMENT;
+import static org.hyperledger.besu.ethereum.eth.transactions.sorter.SequencedRemovalReason.EVICTED;
+import static org.hyperledger.besu.ethereum.eth.transactions.sorter.SequencedRemovalReason.INVALID;
+import static org.hyperledger.besu.ethereum.eth.transactions.sorter.SequencedRemovalReason.REPLACED;
+import static org.hyperledger.besu.ethereum.eth.transactions.sorter.SequencedRemovalReason.TIMED_EVICTION;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
@@ -32,6 +36,7 @@ import org.hyperledger.besu.ethereum.eth.transactions.TransactionAddedResult;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolReplacementHandler;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
+import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.account.AccountState;
 import org.hyperledger.besu.metrics.BesuMetricCategory;
@@ -61,6 +66,8 @@ import java.util.stream.StreamSupport;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.Marker;
+import org.slf4j.MarkerFactory;
 
 /**
  * Holds the current set of pending transactions with the ability to iterate them based on priority
@@ -71,6 +78,7 @@ import org.slf4j.LoggerFactory;
 public abstract class AbstractPendingTransactionsSorter implements PendingTransactions {
   private static final Logger LOG =
       LoggerFactory.getLogger(AbstractPendingTransactionsSorter.class);
+  private static final Marker INVALID_TX_REMOVED = MarkerFactory.getMarker("INVALID_TX_REMOVED");
 
   protected final Clock clock;
   protected final TransactionPoolConfiguration poolConfig;
@@ -106,7 +114,8 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
     this.clock = clock;
     this.chainHeadHeaderSupplier = chainHeadHeaderSupplier;
     this.transactionReplacementHandler =
-        new TransactionPoolReplacementHandler(poolConfig.getPriceBump());
+        new TransactionPoolReplacementHandler(
+            poolConfig.getPriceBump(), poolConfig.getBlobPriceBump());
     final LabelledMetric<Counter> transactionAddedCounter =
         metricsSystem.createLabelledCounter(
             BesuMetricCategory.TRANSACTION_POOL,
@@ -155,7 +164,7 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
                   .setMessage("Evicted {} due to age")
                   .addArgument(transactionInfo::toTraceLog)
                   .log();
-              removeTransaction(transactionInfo.getTransaction());
+              removeTransaction(transactionInfo.getTransaction(), TIMED_EVICTION);
             });
   }
 
@@ -191,9 +200,9 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
     return transactionAddedStatus;
   }
 
-  void removeTransaction(final Transaction transaction) {
+  void removeTransaction(final Transaction transaction, final SequencedRemovalReason reason) {
     removeTransaction(transaction, false);
-    notifyTransactionDropped(transaction);
+    notifyTransactionDropped(transaction, reason);
   }
 
   @Override
@@ -247,16 +256,34 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
 
           if (result.discard()) {
             transactionsToRemove.add(transactionToProcess.getTransaction());
+            logDiscardedTransaction(transactionToProcess, result);
           }
 
           if (result.stop()) {
-            transactionsToRemove.forEach(this::removeTransaction);
+            transactionsToRemove.forEach(tx -> removeTransaction(tx, INVALID));
             return;
           }
         }
       }
-      transactionsToRemove.forEach(this::removeTransaction);
+      transactionsToRemove.forEach(tx -> removeTransaction(tx, INVALID));
     }
+  }
+
+  private void logDiscardedTransaction(
+      final PendingTransaction pendingTransaction, final TransactionSelectionResult result) {
+    LOG.atInfo()
+        .addMarker(INVALID_TX_REMOVED)
+        .addKeyValue("txhash", pendingTransaction::getHash)
+        .addKeyValue("txlog", pendingTransaction::toTraceLog)
+        .addKeyValue("reason", result)
+        .addKeyValue(
+            "txrlp",
+            () -> {
+              final BytesValueRLPOutput rlp = new BytesValueRLPOutput();
+              pendingTransaction.getTransaction().writeTo(rlp);
+              return rlp.encoded().toHexString();
+            })
+        .log();
   }
 
   private AccountTransactionOrder createSenderTransactionOrder(final Address address) {
@@ -301,7 +328,7 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
         .setMessage("Tracked transaction by sender {}")
         .addArgument(pendingTxsForSender::toTraceLog)
         .log();
-    maybeReplacedTransaction.ifPresent(this::removeTransaction);
+    maybeReplacedTransaction.ifPresent(tx -> removeTransaction(tx, REPLACED));
     return ADDED;
   }
 
@@ -331,8 +358,10 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
     pendingTransactionSubscribers.forEach(listener -> listener.onTransactionAdded(transaction));
   }
 
-  private void notifyTransactionDropped(final Transaction transaction) {
-    transactionDroppedListeners.forEach(listener -> listener.onTransactionDropped(transaction));
+  private void notifyTransactionDropped(
+      final Transaction transaction, final SequencedRemovalReason reason) {
+    transactionDroppedListeners.forEach(
+        listener -> listener.onTransactionDropped(transaction, reason));
   }
 
   @Override
@@ -468,7 +497,7 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
 
     // remove backward to avoid gaps
     for (int i = txsToEvict.size() - 1; i >= 0; i--) {
-      removeTransaction(txsToEvict.get(i).getTransaction());
+      removeTransaction(txsToEvict.get(i).getTransaction(), EVICTED);
     }
   }
 
@@ -494,6 +523,7 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
       return sb.toString();
     }
   }
+
   /**
    * @param transaction to restore blobs onto
    * @return an optional copy of the supplied transaction, but with the BlobsWithCommitments

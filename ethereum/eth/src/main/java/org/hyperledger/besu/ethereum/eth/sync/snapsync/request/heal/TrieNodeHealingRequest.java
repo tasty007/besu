@@ -1,5 +1,5 @@
 /*
- * Copyright Hyperledger Besu Contributors.
+ * Copyright contributors to Hyperledger Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -24,13 +24,15 @@ import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapWorldDownloadState;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest;
 import org.hyperledger.besu.ethereum.trie.Node;
 import org.hyperledger.besu.ethereum.trie.patricia.TrieNodeDecoder;
-import org.hyperledger.besu.ethereum.worldstate.WorldStateStorage;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateKeyValueStorage;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.services.tasks.TasksPriorityProvider;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Stream;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -43,7 +45,7 @@ public abstract class TrieNodeHealingRequest extends SnapDataRequest
   private final Bytes location;
   protected Bytes data;
 
-  protected boolean requiresPersisting = true;
+  protected AtomicBoolean requiresPersisting = new AtomicBoolean(true);
 
   protected TrieNodeHealingRequest(final Hash nodeHash, final Hash rootHash, final Bytes location) {
     super(TRIE_NODE, rootHash);
@@ -54,8 +56,8 @@ public abstract class TrieNodeHealingRequest extends SnapDataRequest
 
   @Override
   public int persist(
-      final WorldStateStorage worldStateStorage,
-      final WorldStateStorage.Updater updater,
+      final WorldStateStorageCoordinator worldStateStorageCoordinator,
+      final WorldStateKeyValueStorage.Updater updater,
       final SnapWorldDownloadState downloadState,
       final SnapSyncProcessState snapSyncState,
       final SnapSyncConfiguration snapSyncConfiguration) {
@@ -64,17 +66,25 @@ public abstract class TrieNodeHealingRequest extends SnapDataRequest
       return 0;
     }
     int saved = 0;
-    if (requiresPersisting) {
+    if (requiresPersisting.getAndSet(false)) {
       checkNotNull(data, "Must set data before node can be persisted.");
       saved =
           doPersist(
-              worldStateStorage, updater, downloadState, snapSyncState, snapSyncConfiguration);
+              worldStateStorageCoordinator,
+              updater,
+              downloadState,
+              snapSyncState,
+              snapSyncConfiguration);
     }
     if (possibleParent.isPresent()) {
       return possibleParent
               .get()
               .saveParent(
-                  worldStateStorage, updater, downloadState, snapSyncState, snapSyncConfiguration)
+                  worldStateStorageCoordinator,
+                  updater,
+                  downloadState,
+                  snapSyncState,
+                  snapSyncConfiguration)
           + saved;
     }
     return saved;
@@ -83,7 +93,7 @@ public abstract class TrieNodeHealingRequest extends SnapDataRequest
   @Override
   public Stream<SnapDataRequest> getChildRequests(
       final SnapWorldDownloadState downloadState,
-      final WorldStateStorage worldStateStorage,
+      final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final SnapSyncProcessState snapSyncState) {
     if (!isResponseReceived()) {
       // If this node hasn't been downloaded yet, we can't return any child data
@@ -103,7 +113,7 @@ public abstract class TrieNodeHealingRequest extends SnapDataRequest
                     .map(
                         value ->
                             getRequestsFromTrieNodeValue(
-                                worldStateStorage,
+                                worldStateStorageCoordinator,
                                 downloadState,
                                 node.getLocation().orElse(Bytes.EMPTY),
                                 node.getPath(),
@@ -134,7 +144,7 @@ public abstract class TrieNodeHealingRequest extends SnapDataRequest
   }
 
   public boolean isRequiresPersisting() {
-    return requiresPersisting;
+    return requiresPersisting.get();
   }
 
   public Bytes32 getNodeHash() {
@@ -164,7 +174,7 @@ public abstract class TrieNodeHealingRequest extends SnapDataRequest
   }
 
   public void setRequiresPersisting(final boolean requiresPersisting) {
-    this.requiresPersisting = requiresPersisting;
+    this.requiresPersisting.set(requiresPersisting);
   }
 
   private boolean nodeIsHashReferencedDescendant(final Node<Bytes> node) {
@@ -172,19 +182,20 @@ public abstract class TrieNodeHealingRequest extends SnapDataRequest
   }
 
   public abstract Optional<Bytes> getExistingData(
-      final SnapWorldDownloadState downloadState, final WorldStateStorage worldStateStorage);
+      final WorldStateStorageCoordinator worldStateStorageCoordinator);
 
   public abstract List<Bytes> getTrieNodePath();
 
   protected abstract SnapDataRequest createChildNodeDataRequest(
       final Hash childHash, final Bytes location);
 
-  public Stream<SnapDataRequest> getRootStorageRequests(final WorldStateStorage worldStateStorage) {
+  public Stream<SnapDataRequest> getRootStorageRequests(
+      final WorldStateStorageCoordinator worldStateStorageCoordinator) {
     return Stream.empty();
   }
 
   protected abstract Stream<SnapDataRequest> getRequestsFromTrieNodeValue(
-      final WorldStateStorage worldStateStorage,
+      final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final SnapWorldDownloadState downloadState,
       final Bytes location,
       final Bytes path,

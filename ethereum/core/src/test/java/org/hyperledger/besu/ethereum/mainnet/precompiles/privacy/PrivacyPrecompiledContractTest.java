@@ -52,8 +52,8 @@ import org.hyperledger.besu.ethereum.privacy.storage.PrivateStateStorage;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
-import org.hyperledger.besu.ethereum.vm.BlockHashLookup;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
+import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.SpuriousDragonGasCalculator;
 import org.hyperledger.besu.evm.log.Log;
@@ -302,6 +302,7 @@ public class PrivacyPrecompiledContractTest {
             worldStateArchive,
             privateStateRootResolver,
             privateStateGenesisAllocator,
+            false,
             "RestrictedPrivacyTest");
 
     contract.setPrivateTransactionProcessor(
@@ -328,7 +329,7 @@ public class PrivacyPrecompiledContractTest {
   @Test
   public void testSimulatedPublicTransactionIsSkipped() {
     final PrivacyPrecompiledContract emptyContract =
-        new PrivacyPrecompiledContract(null, null, null, null, null, null);
+        new PrivacyPrecompiledContract(null, null, null, null, null, false, null);
 
     // A simulated public transaction doesn't contain a PrivateMetadataUpdater
     final MessageFrame frame = mock(MessageFrame.class);
@@ -355,6 +356,7 @@ public class PrivacyPrecompiledContractTest {
         worldStateArchive,
         privateStateRootResolver,
         privateStateGenesisAllocator,
+        false,
         "PrivacyTests");
   }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright contributors to Hyperledger Besu
+ * Copyright contributors to Hyperledger Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -14,7 +14,7 @@
  */
 package org.hyperledger.besu.controller;
 
-import org.hyperledger.besu.ethereum.core.MiningParameters;
+import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 
 /**
  * This interface wraps the provided MiningParameters to enable controller-specific parameter
@@ -27,7 +27,7 @@ public interface MiningParameterOverrides {
    * @param fromCli The mining parameters that contains original values.
    * @return MiningParameters constructed from provided param with additional overridden parameters.
    */
-  default MiningParameters getMiningParameterOverrides(final MiningParameters fromCli) {
+  default MiningConfiguration getMiningParameterOverrides(final MiningConfiguration fromCli) {
     return fromCli;
   }
 }

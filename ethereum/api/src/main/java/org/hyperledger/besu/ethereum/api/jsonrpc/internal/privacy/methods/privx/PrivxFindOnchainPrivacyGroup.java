@@ -1,5 +1,5 @@
 /*
- * Copyright contributors to Hyperledger Besu
+ * Copyright contributors to Hyperledger Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -19,7 +19,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.privacy.methods.Privac
 import org.hyperledger.besu.ethereum.privacy.PrivacyController;
 
 // Use PrivxFindFlexiblePrivacyGroup instead
-@Deprecated
+@Deprecated(since = "21.10.3")
 public class PrivxFindOnchainPrivacyGroup extends PrivxFindFlexiblePrivacyGroup {
 
   public PrivxFindOnchainPrivacyGroup(

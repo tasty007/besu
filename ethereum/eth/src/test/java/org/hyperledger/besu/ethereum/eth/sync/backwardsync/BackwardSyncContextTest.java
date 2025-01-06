@@ -1,20 +1,17 @@
 /*
+ * Copyright contributors to Hyperledger Besu.
  *
- *  * Copyright Hyperledger Besu Contributors.
- *  *
- *  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
- *  * the License. You may obtain a copy of the License at
- *  *
- *  * http://www.apache.org/licenses/LICENSE-2.0
- *  *
- *  * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
- *  * an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
- *  * specific language governing permissions and limitations under the License.
- *  *
- *  * SPDX-License-Identifier: Apache-2.0
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
  *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+ * an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+ * specific language governing permissions and limitations under the License.
+ *
+ * SPDX-License-Identifier: Apache-2.0
  */
-
 package org.hyperledger.besu.ethereum.eth.sync.backwardsync;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -34,21 +31,27 @@ import org.hyperledger.besu.ethereum.BlockProcessingOutputs;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.BlockValidator;
 import org.hyperledger.besu.ethereum.ProtocolContext;
+import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.EthProtocolManager;
+import org.hyperledger.besu.ethereum.eth.manager.EthProtocolManagerTestBuilder;
 import org.hyperledger.besu.ethereum.eth.manager.EthProtocolManagerTestUtil;
 import org.hyperledger.besu.ethereum.eth.manager.RespondingEthPeer;
+import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutor;
+import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.mainnet.MainnetProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
-import org.hyperledger.besu.ethereum.referencetests.DefaultReferenceTestWorldState;
+import org.hyperledger.besu.ethereum.referencetests.ForestReferenceTestWorldState;
+import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.services.kvstore.InMemoryKeyValueStorage;
 
@@ -81,7 +84,7 @@ public class BackwardSyncContextTest {
   public static final int REMOTE_HEIGHT = 50;
   public static final int UNCLE_HEIGHT = 25 - 3;
 
-  public static final int NUM_OF_RETRIES = 100;
+  public static final int NUM_OF_RETRIES = 1;
   public static final int TEST_MAX_BAD_CHAIN_EVENT_ENTRIES = 25;
 
   private BackwardSyncContext context;
@@ -93,7 +96,12 @@ public class BackwardSyncContextTest {
 
   @Spy
   private ProtocolSchedule protocolSchedule =
-      MainnetProtocolSchedule.fromConfig(new StubGenesisConfigOptions());
+      MainnetProtocolSchedule.fromConfig(
+          new StubGenesisConfigOptions(),
+          MiningConfiguration.MINING_DISABLED,
+          new BadBlockManager(),
+          false,
+          new NoOpMetricsSystem());
 
   @Spy
   private ProtocolSpec protocolSpec =
@@ -107,6 +115,7 @@ public class BackwardSyncContextTest {
 
   @Mock private BlockValidator blockValidator;
   @Mock private SyncState syncState;
+  @Mock private PeerTaskExecutor peerTaskExecutor;
   private BackwardChain backwardChain;
   private Block uncle;
   private Block genesisBlock;
@@ -139,7 +148,12 @@ public class BackwardSyncContextTest {
       }
     }
     when(protocolContext.getBlockchain()).thenReturn(localBlockchain);
-    EthProtocolManager ethProtocolManager = EthProtocolManagerTestUtil.create();
+    EthProtocolManager ethProtocolManager =
+        EthProtocolManagerTestBuilder.builder()
+            .setProtocolSchedule(protocolSchedule)
+            .setBlockchain(localBlockchain)
+            .setPeerTaskExecutor(peerTaskExecutor)
+            .build();
 
     peer = EthProtocolManagerTestUtil.createPeer(ethProtocolManager);
     EthContext ethContext = ethProtocolManager.ethContext();
@@ -154,8 +168,9 @@ public class BackwardSyncContextTest {
                       new BlockProcessingOutputs(
                           // use forest-based worldstate since it does not require
                           // blockheader stateroot to match actual worldstate root
-                          DefaultReferenceTestWorldState.create(Collections.emptyMap()),
-                          blockDataGenerator.receipts(block))));
+                          ForestReferenceTestWorldState.create(Collections.emptyMap()),
+                          blockDataGenerator.receipts(block),
+                          Optional.empty())));
             });
 
     backwardChain = inMemoryBackwardChain();
@@ -172,6 +187,7 @@ public class BackwardSyncContextTest {
             new BackwardSyncContext(
                 protocolContext,
                 protocolSchedule,
+                SynchronizerConfiguration.builder().build(),
                 metricsSystem,
                 ethContext,
                 syncState,
@@ -183,13 +199,16 @@ public class BackwardSyncContextTest {
   }
 
   private Block createUncle(final int i, final Hash parentHash) {
+    return createBlock(i, parentHash);
+  }
+
+  private Block createBlock(final int i, final Hash parentHash) {
     final BlockDataGenerator.BlockOptions options =
         new BlockDataGenerator.BlockOptions()
             .setBlockNumber(i)
             .setParentHash(parentHash)
             .transactionTypes(TransactionType.ACCESS_LIST);
-    final Block block = blockDataGenerator.block(options);
-    return block;
+    return blockDataGenerator.block(options);
   }
 
   public static BackwardChain inMemoryBackwardChain() {
@@ -223,6 +242,20 @@ public class BackwardSyncContextTest {
 
     future.get();
     assertThat(localBlockchain.getChainHeadBlock()).isEqualTo(remoteBlockchain.getChainHeadBlock());
+  }
+
+  @Test
+  public void shouldNotSyncUntilHashWhenNotInSync() {
+    doReturn(false).when(context).isReady();
+    final Hash hash = getBlockByNumber(REMOTE_HEIGHT).getHash();
+    final CompletableFuture<Void> future = context.syncBackwardsUntil(hash);
+
+    respondUntilFutureIsDone(future);
+
+    assertThatThrownBy(future::get)
+        .isInstanceOf(ExecutionException.class)
+        .hasMessageContaining("Backward sync is not ready");
+    assertThat(backwardChain.getFirstHashToAppend()).isEmpty();
   }
 
   @Test
@@ -434,5 +467,52 @@ public class BackwardSyncContextTest {
             .contains("Max number of retries " + NUM_OF_RETRIES + " reached");
       }
     }
+  }
+
+  @Test
+  public void whenBlockNotFoundInPeers_shouldRemoveBlockFromQueueAndProgressInNextSession() {
+    // This scenario can happen due to a reorg
+    // Expectation we progress beyond the reorg block upon receiving the next FCU
+
+    // choose an intermediate remote block to create a reorg block from
+    int reorgBlockHeight = REMOTE_HEIGHT - 1; // 49
+    final Hash reorgBlockParentHash = getBlockByNumber(reorgBlockHeight - 1).getHash();
+    final Block reorgBlock = createBlock(reorgBlockHeight, reorgBlockParentHash);
+
+    // represents first FCU with a block that will become reorged away
+    final CompletableFuture<Void> fcuBeforeReorg = context.syncBackwardsUntil(reorgBlock.getHash());
+    respondUntilFutureIsDone(fcuBeforeReorg);
+    assertThat(localBlockchain.getChainHeadBlockNumber()).isLessThan(reorgBlockHeight);
+
+    // represents subsequent FCU with successfully reorged version of the same block
+    final CompletableFuture<Void> fcuAfterReorg =
+        context.syncBackwardsUntil(getBlockByNumber(reorgBlockHeight).getHash());
+    respondUntilFutureIsDone(fcuAfterReorg);
+    assertThat(localBlockchain.getChainHeadBlock())
+        .isEqualTo(remoteBlockchain.getBlockByNumber(reorgBlockHeight).orElseThrow());
+  }
+
+  @Test
+  public void
+      whenBlockNotFoundInPeers_shouldRemoveBlockFromQueueAndProgressWithQueueInSameSession() {
+    // This scenario can happen due to a reorg
+    // Expectation we progress beyond the reorg block due to FCU we received during the same session
+
+    // choose an intermediate remote block to create a reorg block from
+    int reorgBlockHeight = REMOTE_HEIGHT - 1; // 49
+    final Hash reorgBlockParentHash = getBlockByNumber(reorgBlockHeight - 1).getHash();
+    final Block reorgBlock = createBlock(reorgBlockHeight, reorgBlockParentHash);
+
+    // represents first FCU with a block that will become reorged away
+    final CompletableFuture<Void> fcuBeforeReorg = context.syncBackwardsUntil(reorgBlock.getHash());
+    // represents subsequent FCU with successfully reorged version of the same block
+    // received during the first FCU's BWS session
+    final CompletableFuture<Void> fcuAfterReorg =
+        context.syncBackwardsUntil(getBlockByNumber(reorgBlockHeight).getHash());
+
+    respondUntilFutureIsDone(fcuBeforeReorg);
+    respondUntilFutureIsDone(fcuAfterReorg);
+    assertThat(localBlockchain.getChainHeadBlock())
+        .isEqualTo(remoteBlockchain.getBlockByNumber(reorgBlockHeight).orElseThrow());
   }
 }

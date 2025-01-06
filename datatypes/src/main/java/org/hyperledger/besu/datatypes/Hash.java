@@ -1,5 +1,5 @@
 /*
- * Copyright contributors to Hyperledger Besu
+ * Copyright contributors to Hyperledger Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -15,6 +15,7 @@
 package org.hyperledger.besu.datatypes;
 
 import static org.hyperledger.besu.crypto.Hash.keccak256;
+import static org.hyperledger.besu.crypto.Hash.sha256;
 
 import org.hyperledger.besu.ethereum.rlp.RLP;
 
@@ -28,6 +29,9 @@ public class Hash extends DelegatingBytes32 {
 
   /** The constant ZERO. */
   public static final Hash ZERO = new Hash(Bytes32.ZERO);
+
+  /** Last hash */
+  public static final Hash LAST = new Hash(Bytes32.fromHexString("F".repeat(64)));
 
   /**
    * Hash of an RLP encoded trie hash with no content, or
@@ -46,6 +50,17 @@ public class Hash extends DelegatingBytes32 {
    * "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
    */
   public static final Hash EMPTY = hash(Bytes.EMPTY);
+
+  /**
+   * Hash of empty requests or "0x6036c41849da9c076ed79654d434017387a88fb833c2856b32e18218b3341c5f"
+   */
+  public static final Hash EMPTY_REQUESTS_HASH =
+      Hash.wrap(
+          sha256(
+              Bytes.concatenate(
+                  sha256(Bytes.of(RequestType.DEPOSIT.getSerializedType())),
+                  sha256(Bytes.of(RequestType.WITHDRAWAL.getSerializedType())),
+                  sha256(Bytes.of(RequestType.CONSOLIDATION.getSerializedType())))));
 
   /**
    * Instantiates a new Hash.
@@ -102,5 +117,17 @@ public class Hash extends DelegatingBytes32 {
    */
   public static Hash fromHexStringLenient(final String str) {
     return new Hash(Bytes32.fromHexStringLenient(str));
+  }
+
+  /***
+   * For logging purposes, this method returns a shortened hex representation
+   *
+   * @return shortened string with only the beginning and the end of the hex representation
+   */
+  public String toShortLogString() {
+    final var hexRepresentation = toFastHex(false);
+    String firstPart = hexRepresentation.substring(0, 5);
+    String lastPart = hexRepresentation.substring(hexRepresentation.length() - 5);
+    return firstPart + "....." + lastPart;
   }
 }

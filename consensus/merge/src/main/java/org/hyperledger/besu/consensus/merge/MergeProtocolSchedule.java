@@ -1,5 +1,5 @@
 /*
- * Copyright Hyperledger Besu Contributors.
+ * Copyright contributors to Hyperledger Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -16,6 +16,8 @@ package org.hyperledger.besu.consensus.merge;
 
 import org.hyperledger.besu.config.GenesisConfigOptions;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.chain.BadBlockManager;
+import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.PrivacyParameters;
 import org.hyperledger.besu.ethereum.mainnet.BlockHeaderValidator;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
@@ -25,6 +27,7 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSpecBuilder;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 import org.hyperledger.besu.evm.MainnetEVMs;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
+import org.hyperledger.besu.plugin.services.MetricsSystem;
 
 import java.math.BigInteger;
 import java.util.HashMap;
@@ -37,16 +40,34 @@ public class MergeProtocolSchedule {
 
   private static final BigInteger DEFAULT_CHAIN_ID = BigInteger.valueOf(1);
 
+  /** Default constructor. */
+  MergeProtocolSchedule() {}
+
   /**
    * Create protocol schedule.
    *
    * @param config the config
    * @param isRevertReasonEnabled the is revert reason enabled
+   * @param miningConfiguration the mining parameters
+   * @param badBlockManager the cache to use to keep invalid blocks
+   * @param isParallelTxProcessingEnabled indicates whether parallel transaction is enabled.
    * @return the protocol schedule
    */
   public static ProtocolSchedule create(
-      final GenesisConfigOptions config, final boolean isRevertReasonEnabled) {
-    return create(config, PrivacyParameters.DEFAULT, isRevertReasonEnabled);
+      final GenesisConfigOptions config,
+      final boolean isRevertReasonEnabled,
+      final MiningConfiguration miningConfiguration,
+      final BadBlockManager badBlockManager,
+      final boolean isParallelTxProcessingEnabled,
+      final MetricsSystem metricsSystem) {
+    return create(
+        config,
+        PrivacyParameters.DEFAULT,
+        isRevertReasonEnabled,
+        miningConfiguration,
+        badBlockManager,
+        isParallelTxProcessingEnabled,
+        metricsSystem);
   }
 
   /**
@@ -55,12 +76,19 @@ public class MergeProtocolSchedule {
    * @param config the config
    * @param privacyParameters the privacy parameters
    * @param isRevertReasonEnabled the is revert reason enabled
+   * @param miningConfiguration the mining parameters
+   * @param badBlockManager the cache to use to keep invalid blocks
+   * @param isParallelTxProcessingEnabled indicates whether parallel transaction is enabled.
    * @return the protocol schedule
    */
   public static ProtocolSchedule create(
       final GenesisConfigOptions config,
       final PrivacyParameters privacyParameters,
-      final boolean isRevertReasonEnabled) {
+      final boolean isRevertReasonEnabled,
+      final MiningConfiguration miningConfiguration,
+      final BadBlockManager badBlockManager,
+      final boolean isParallelTxProcessingEnabled,
+      final MetricsSystem metricsSystem) {
 
     Map<Long, Function<ProtocolSpecBuilder, ProtocolSpecBuilder>> postMergeModifications =
         new HashMap<>();
@@ -73,11 +101,15 @@ public class MergeProtocolSchedule {
 
     return new ProtocolScheduleBuilder(
             config,
-            DEFAULT_CHAIN_ID,
+            Optional.of(DEFAULT_CHAIN_ID),
             new ProtocolSpecAdapters(postMergeModifications),
             privacyParameters,
             isRevertReasonEnabled,
-            EvmConfiguration.DEFAULT)
+            EvmConfiguration.DEFAULT,
+            miningConfiguration,
+            badBlockManager,
+            isParallelTxProcessingEnabled,
+            metricsSystem)
         .createProtocolSchedule();
   }
 
@@ -97,7 +129,7 @@ public class MergeProtocolSchedule {
                     gasCalculator, chainId.orElse(BigInteger.ZERO), EvmConfiguration.DEFAULT))
         .blockHeaderValidatorBuilder(MergeProtocolSchedule::getBlockHeaderValidator)
         .blockReward(Wei.ZERO)
-        .difficultyCalculator((a, b, c) -> BigInteger.ZERO)
+        .difficultyCalculator((a, b) -> BigInteger.ZERO)
         .skipZeroBlockRewards(true)
         .isPoS(true)
         .name("Paris");

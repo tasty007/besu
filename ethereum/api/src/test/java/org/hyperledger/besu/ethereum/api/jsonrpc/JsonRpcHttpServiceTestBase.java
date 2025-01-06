@@ -12,7 +12,6 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-
 package org.hyperledger.besu.ethereum.api.jsonrpc;
 
 import static org.mockito.Mockito.mock;
@@ -20,6 +19,7 @@ import static org.mockito.Mockito.mock;
 import org.hyperledger.besu.config.StubGenesisConfigOptions;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.ApiConfiguration;
+import org.hyperledger.besu.ethereum.api.graphql.GraphQLConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.health.HealthService;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.filter.FilterManager;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.JsonRpcMethod;
@@ -27,9 +27,10 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.methods.JsonRpcMethodsFactory;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.WebSocketConfiguration;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.blockcreation.PoWMiningCoordinator;
+import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.chain.ChainHead;
-import org.hyperledger.besu.ethereum.core.MiningParameters;
+import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.PrivacyParameters;
 import org.hyperledger.besu.ethereum.core.Synchronizer;
 import org.hyperledger.besu.ethereum.eth.EthProtocol;
@@ -40,6 +41,7 @@ import org.hyperledger.besu.ethereum.p2p.network.P2PNetwork;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
 import org.hyperledger.besu.ethereum.permissioning.AccountLocalConfigPermissioningController;
 import org.hyperledger.besu.ethereum.permissioning.NodeLocalConfigPermissioningController;
+import org.hyperledger.besu.ethereum.transaction.TransactionSimulator;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.metrics.prometheus.MetricsConfiguration;
@@ -78,7 +80,9 @@ public class JsonRpcHttpServiceTestBase {
   protected static OkHttpClient client;
   protected static String baseUrl;
   protected static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
-  protected static final String CLIENT_VERSION = "TestClientVersion/0.1.0";
+  protected static final String CLIENT_NODE_NAME = "TestClientVersion/0.1.0";
+  protected static final String CLIENT_VERSION = "0.1.0";
+  protected static final String CLIENT_COMMIT = "12345678";
   protected static final BigInteger CHAIN_ID = BigInteger.valueOf(123);
   protected static P2PNetwork peerDiscoveryMock;
   protected static EthPeers ethPeersMock;
@@ -108,7 +112,9 @@ public class JsonRpcHttpServiceTestBase {
     rpcMethods =
         new JsonRpcMethodsFactory()
             .methods(
+                CLIENT_NODE_NAME,
                 CLIENT_VERSION,
+                CLIENT_COMMIT,
                 CHAIN_ID,
                 new StubGenesisConfigOptions(),
                 peerDiscoveryMock,
@@ -116,11 +122,15 @@ public class JsonRpcHttpServiceTestBase {
                 synchronizer,
                 MainnetProtocolSchedule.fromConfig(
                     new StubGenesisConfigOptions().constantinopleBlock(0).chainId(CHAIN_ID),
-                    EvmConfiguration.DEFAULT),
+                    EvmConfiguration.DEFAULT,
+                    MiningConfiguration.MINING_DISABLED,
+                    new BadBlockManager(),
+                    false,
+                    new NoOpMetricsSystem()),
                 mock(ProtocolContext.class),
                 mock(FilterManager.class),
                 mock(TransactionPool.class),
-                mock(MiningParameters.class),
+                mock(MiningConfiguration.class),
                 mock(PoWMiningCoordinator.class),
                 new NoOpMetricsSystem(),
                 supportedCapabilities,
@@ -131,13 +141,15 @@ public class JsonRpcHttpServiceTestBase {
                 mock(JsonRpcConfiguration.class),
                 mock(WebSocketConfiguration.class),
                 mock(MetricsConfiguration.class),
+                mock(GraphQLConfiguration.class),
                 natService,
                 new HashMap<>(),
                 folder,
                 ethPeersMock,
                 vertx,
                 mock(ApiConfiguration.class),
-                Optional.empty());
+                Optional.empty(),
+                mock(TransactionSimulator.class));
     disabledRpcMethods = new HashMap<>();
     addedRpcMethods = new HashSet<>();
 
@@ -149,8 +161,7 @@ public class JsonRpcHttpServiceTestBase {
     baseUrl = service.url();
   }
 
-  protected static JsonRpcHttpService createJsonRpcHttpService(final JsonRpcConfiguration config)
-      throws Exception {
+  protected static JsonRpcHttpService createJsonRpcHttpService(final JsonRpcConfiguration config) {
     return new JsonRpcHttpService(
         vertx,
         folder,
@@ -162,7 +173,7 @@ public class JsonRpcHttpServiceTestBase {
         HealthService.ALWAYS_HEALTHY);
   }
 
-  protected static JsonRpcHttpService createJsonRpcHttpService() throws Exception {
+  protected static JsonRpcHttpService createJsonRpcHttpService() {
     return new JsonRpcHttpService(
         vertx,
         folder,

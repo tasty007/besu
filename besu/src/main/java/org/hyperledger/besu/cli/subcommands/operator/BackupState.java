@@ -11,9 +11,7 @@
  * specific language governing permissions and limitations under the License.
  *
  * SPDX-License-Identifier: Apache-2.0
- *
  */
-
 package org.hyperledger.besu.cli.subcommands.operator;
 
 import static com.google.common.base.Preconditions.checkArgument;
@@ -27,7 +25,7 @@ import org.hyperledger.besu.ethereum.api.query.StateBackupService.BackupStatus;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.trie.forest.ForestWorldStateArchive;
-import org.hyperledger.besu.ethereum.worldstate.WorldStateStorage;
+import org.hyperledger.besu.ethereum.trie.forest.storage.ForestWorldStateKeyValueStorage;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
 import java.io.File;
@@ -35,6 +33,7 @@ import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.LockSupport;
 
+import jakarta.validation.constraints.NotBlank;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.ParentCommand;
@@ -47,6 +46,9 @@ import picocli.CommandLine.ParentCommand;
     versionProvider = VersionProvider.class)
 public class BackupState implements Runnable {
 
+  /** Default constructor. */
+  public BackupState() {}
+
   @Option(
       names = "--block",
       paramLabel = MANDATORY_LONG_FORMAT_HELP,
@@ -54,6 +56,7 @@ public class BackupState implements Runnable {
       arity = "1..1")
   private final Long block = Long.MAX_VALUE;
 
+  @NotBlank
   @Option(
       names = "--backup-path",
       required = true,
@@ -81,7 +84,7 @@ public class BackupState implements Runnable {
 
     final BesuController besuController = createBesuController();
     final MutableBlockchain blockchain = besuController.getProtocolContext().getBlockchain();
-    final WorldStateStorage worldStateStorage =
+    final ForestWorldStateKeyValueStorage forestWorldStateKeyValueStorage =
         ((ForestWorldStateArchive) besuController.getProtocolContext().getWorldStateArchive())
             .getWorldStateStorage();
     final EthScheduler scheduler = new EthScheduler(1, 1, 1, 1, new NoOpMetricsSystem());
@@ -89,7 +92,11 @@ public class BackupState implements Runnable {
       final long targetBlock = Math.min(blockchain.getChainHeadBlockNumber(), this.block);
       final StateBackupService backup =
           new StateBackupService(
-              BesuInfo.version(), blockchain, backupDir.toPath(), scheduler, worldStateStorage);
+              BesuInfo.version(),
+              blockchain,
+              backupDir.toPath(),
+              scheduler,
+              forestWorldStateKeyValueStorage);
       final BackupStatus status = backup.requestBackup(targetBlock, compress, Optional.empty());
 
       final double refValue = Math.pow(2, 256) / 100.0d;

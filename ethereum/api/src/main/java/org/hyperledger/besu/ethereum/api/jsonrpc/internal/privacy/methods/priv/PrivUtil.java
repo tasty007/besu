@@ -12,7 +12,6 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.privacy.methods.priv;
 
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
@@ -21,6 +20,7 @@ import org.hyperledger.besu.ethereum.privacy.PrivacyController;
 
 import java.util.Optional;
 
+@Deprecated(since = "24.12.0")
 public class PrivUtil {
 
   public static void checkMembershipForAuthenticatedUser(

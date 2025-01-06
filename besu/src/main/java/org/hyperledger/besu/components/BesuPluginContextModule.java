@@ -1,5 +1,5 @@
 /*
- * Copyright Hyperledger Besu Contributors.
+ * Copyright contributors to Hyperledger Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -11,13 +11,11 @@
  * specific language governing permissions and limitations under the License.
  *
  * SPDX-License-Identifier: Apache-2.0
- *
  */
 package org.hyperledger.besu.components;
 
-import org.hyperledger.besu.services.BesuPluginContextImpl;
+import org.hyperledger.besu.services.BesuConfigurationImpl;
 
-import javax.inject.Named;
 import javax.inject.Singleton;
 
 import dagger.Module;
@@ -27,15 +25,12 @@ import dagger.Provides;
 @Module
 public class BesuPluginContextModule {
 
-  /**
-   * Creates a BesuPluginContextImpl, used for plugin service discovery.
-   *
-   * @return the BesuPluginContext
-   */
+  /** Default constructor. */
+  public BesuPluginContextModule() {}
+
   @Provides
-  @Named("besuPluginContext")
   @Singleton
-  public BesuPluginContextImpl provideBesuPluginContext() {
-    return new BesuPluginContextImpl();
+  BesuConfigurationImpl provideBesuPluginConfig() {
+    return new BesuConfigurationImpl();
   }
 }

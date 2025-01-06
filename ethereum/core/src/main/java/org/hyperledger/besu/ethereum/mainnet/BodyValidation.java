@@ -1,5 +1,5 @@
 /*
- * Copyright Hyperledger Besu Contributors.
+ * Copyright contributors to Hyperledger Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -15,14 +15,14 @@
 package org.hyperledger.besu.ethereum.mainnet;
 
 import static org.hyperledger.besu.crypto.Hash.keccak256;
+import static org.hyperledger.besu.crypto.Hash.sha256;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
-import org.hyperledger.besu.ethereum.core.Deposit;
+import org.hyperledger.besu.ethereum.core.Request;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
-import org.hyperledger.besu.ethereum.core.encoding.DepositEncoder;
 import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
 import org.hyperledger.besu.ethereum.core.encoding.TransactionEncoder;
 import org.hyperledger.besu.ethereum.core.encoding.WithdrawalEncoder;
@@ -31,6 +31,7 @@ import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.patricia.SimpleMerklePatriciaTrie;
 import org.hyperledger.besu.evm.log.LogsBloomFilter;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.IntStream;
 
@@ -89,18 +90,24 @@ public final class BodyValidation {
   }
 
   /**
-   * Generates the deposits root for a list of deposits
+   * Generates the requests hash for a list of requests
    *
-   * @param deposits the transactions
-   * @return the transaction root
+   * @param requests list of request
+   * @return the requests hash
    */
-  public static Hash depositsRoot(final List<Deposit> deposits) {
-    final MerkleTrie<Bytes, Bytes> trie = trie();
+  public static Hash requestsHash(final List<Request> requests) {
+    List<Bytes> requestHashes = new ArrayList<>();
+    IntStream.range(0, requests.size())
+        .forEach(
+            i -> {
+              final Request request = requests.get(i);
+              final Bytes requestBytes =
+                  Bytes.concatenate(
+                      Bytes.of(request.getType().getSerializedType()), request.getData());
+              requestHashes.add(sha256(requestBytes));
+            });
 
-    IntStream.range(0, deposits.size())
-        .forEach(i -> trie.put(indexKey(i), DepositEncoder.encodeOpaqueBytes(deposits.get(i))));
-
-    return Hash.wrap(trie.getRootHash());
+    return Hash.wrap(sha256(Bytes.wrap(requestHashes)));
   }
 
   /**
@@ -118,7 +125,8 @@ public final class BodyValidation {
                 trie.put(
                     indexKey(i),
                     RLP.encode(
-                        rlpOutput -> receipts.get(i).writeToForReceiptTrie(rlpOutput, false))));
+                        rlpOutput ->
+                            receipts.get(i).writeToForReceiptTrie(rlpOutput, false, false))));
 
     return Hash.wrap(trie.getRootHash());
   }

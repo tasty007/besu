@@ -1,5 +1,5 @@
 /*
- * Copyright contributors to Hyperledger Besu
+ * Copyright contributors to Hyperledger Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -22,13 +22,23 @@ import static org.mockito.Mockito.when;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
+import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockchainSetupUtil;
 import org.hyperledger.besu.ethereum.core.Difficulty;
+import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
+import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
 import org.hyperledger.besu.ethereum.eth.manager.EthProtocolManager;
+import org.hyperledger.besu.ethereum.eth.manager.EthProtocolManagerTestBuilder;
 import org.hyperledger.besu.ethereum.eth.manager.EthProtocolManagerTestUtil;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.manager.RespondingEthPeer;
+import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutor;
+import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutorResponseCode;
+import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutorResult;
+import org.hyperledger.besu.ethereum.eth.manager.peertask.task.GetHeadersFromPeerTask;
+import org.hyperledger.besu.ethereum.eth.manager.peertask.task.GetHeadersFromPeerTaskExecutorAnswer;
+import org.hyperledger.besu.ethereum.eth.manager.peertask.task.GetReceiptsFromPeerTask;
 import org.hyperledger.besu.ethereum.eth.sync.ChainDownloader;
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.fastsync.FastSyncState;
@@ -36,28 +46,36 @@ import org.hyperledger.besu.ethereum.eth.sync.fastsync.checkpoint.Checkpoint;
 import org.hyperledger.besu.ethereum.eth.sync.fastsync.checkpoint.ImmutableCheckpoint;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
-import org.hyperledger.besu.ethereum.worldstate.DataStorageFormat;
-import org.hyperledger.besu.ethereum.worldstate.WorldStateStorage;
+import org.hyperledger.besu.ethereum.trie.diffbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
+import org.hyperledger.besu.ethereum.trie.forest.storage.ForestWorldStateKeyValueStorage;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateKeyValueStorage;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
+import org.hyperledger.besu.metrics.SyncDurationMetrics;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
+import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Stream;
 
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtensionContext;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.ArgumentsProvider;
 import org.junit.jupiter.params.provider.ArgumentsSource;
+import org.mockito.stubbing.Answer;
 
 public class CheckPointSyncChainDownloaderTest {
-
-  private final WorldStateStorage worldStateStorage = mock(WorldStateStorage.class);
 
   protected ProtocolSchedule protocolSchedule;
   protected EthProtocolManager ethProtocolManager;
   protected EthContext ethContext;
+  private PeerTaskExecutor peerTaskExecutor;
   protected ProtocolContext protocolContext;
   private SyncState syncState;
 
@@ -65,6 +83,8 @@ public class CheckPointSyncChainDownloaderTest {
   private BlockchainSetupUtil otherBlockchainSetup;
   protected Blockchain otherBlockchain;
   private Checkpoint checkpoint;
+
+  private WorldStateStorageCoordinator worldStateStorageCoordinator;
 
   static class CheckPointSyncChainDownloaderTestArguments implements ArgumentsProvider {
     @Override
@@ -74,19 +94,38 @@ public class CheckPointSyncChainDownloaderTest {
     }
   }
 
-  public void setup(final DataStorageFormat storageFormat) {
-    when(worldStateStorage.isWorldStateAvailable(any(), any())).thenReturn(true);
-    final BlockchainSetupUtil localBlockchainSetup = BlockchainSetupUtil.forTesting(storageFormat);
+  public void setup(final DataStorageFormat dataStorageFormat) {
+    final WorldStateKeyValueStorage worldStateKeyValueStorage;
+    if (dataStorageFormat.equals(DataStorageFormat.BONSAI)) {
+      worldStateKeyValueStorage = mock(BonsaiWorldStateKeyValueStorage.class);
+      when(((BonsaiWorldStateKeyValueStorage) worldStateKeyValueStorage)
+              .isWorldStateAvailable(any(), any()))
+          .thenReturn(true);
+    } else {
+      worldStateKeyValueStorage = mock(ForestWorldStateKeyValueStorage.class);
+      when(((ForestWorldStateKeyValueStorage) worldStateKeyValueStorage)
+              .isWorldStateAvailable(any()))
+          .thenReturn(true);
+    }
+    when(worldStateKeyValueStorage.getDataStorageFormat()).thenReturn(dataStorageFormat);
+    worldStateStorageCoordinator = new WorldStateStorageCoordinator(worldStateKeyValueStorage);
+
+    final BlockchainSetupUtil localBlockchainSetup =
+        BlockchainSetupUtil.forTesting(dataStorageFormat);
     localBlockchain = localBlockchainSetup.getBlockchain();
-    otherBlockchainSetup = BlockchainSetupUtil.forTesting(storageFormat);
+    otherBlockchainSetup = BlockchainSetupUtil.forTesting(dataStorageFormat);
     otherBlockchain = otherBlockchainSetup.getBlockchain();
+    otherBlockchainSetup.importFirstBlocks(30);
     protocolSchedule = localBlockchainSetup.getProtocolSchedule();
     protocolContext = localBlockchainSetup.getProtocolContext();
+    peerTaskExecutor = mock(PeerTaskExecutor.class);
     ethProtocolManager =
-        EthProtocolManagerTestUtil.create(
-            protocolSchedule,
-            localBlockchain,
-            new EthScheduler(1, 1, 1, 1, new NoOpMetricsSystem()));
+        EthProtocolManagerTestBuilder.builder()
+            .setProtocolSchedule(protocolSchedule)
+            .setBlockchain(localBlockchain)
+            .setEthScheduler(new EthScheduler(1, 1, 1, 1, new NoOpMetricsSystem()))
+            .setPeerTaskExecutor(peerTaskExecutor)
+            .build();
     ethContext = ethProtocolManager.ethContext();
 
     final int blockNumber = 10;
@@ -103,31 +142,58 @@ public class CheckPointSyncChainDownloaderTest {
             ethContext.getEthPeers(),
             true,
             Optional.of(checkpoint));
+
+    when(peerTaskExecutor.execute(any(GetReceiptsFromPeerTask.class)))
+        .thenAnswer(
+            (invocationOnMock) -> {
+              GetReceiptsFromPeerTask task =
+                  invocationOnMock.getArgument(0, GetReceiptsFromPeerTask.class);
+              Map<BlockHeader, List<TransactionReceipt>> getReceiptsFromPeerTaskResult =
+                  new HashMap<>();
+              task.getBlockHeaders()
+                  .forEach(
+                      (bh) ->
+                          getReceiptsFromPeerTaskResult.put(
+                              bh, otherBlockchain.getTxReceipts(bh.getHash()).get()));
+
+              return new PeerTaskExecutorResult<>(
+                  Optional.of(getReceiptsFromPeerTaskResult),
+                  PeerTaskExecutorResponseCode.SUCCESS,
+                  Optional.empty());
+            });
+
+    final Answer<PeerTaskExecutorResult<List<BlockHeader>>> getHeadersAnswer =
+        new GetHeadersFromPeerTaskExecutorAnswer(otherBlockchain, ethContext.getEthPeers());
+    when(peerTaskExecutor.execute(any(GetHeadersFromPeerTask.class))).thenAnswer(getHeadersAnswer);
+    when(peerTaskExecutor.executeAgainstPeer(any(GetHeadersFromPeerTask.class), any(EthPeer.class)))
+        .thenAnswer(getHeadersAnswer);
   }
 
   @AfterEach
-  public void tearDown() {
-    ethProtocolManager.stop();
+  void tearDown() {
+    if (ethContext != null) {
+      ethProtocolManager.stop();
+    }
   }
 
   private ChainDownloader downloader(
       final SynchronizerConfiguration syncConfig, final long pivotBlockNumber) {
     return CheckpointSyncChainDownloader.create(
         syncConfig,
-        worldStateStorage,
+        worldStateStorageCoordinator,
         protocolSchedule,
         protocolContext,
         ethContext,
         syncState,
         new NoOpMetricsSystem(),
-        new FastSyncState(otherBlockchain.getBlockHeader(pivotBlockNumber).get()));
+        new FastSyncState(otherBlockchain.getBlockHeader(pivotBlockNumber).get()),
+        SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS);
   }
 
   @ParameterizedTest
   @ArgumentsSource(CheckPointSyncChainDownloaderTestArguments.class)
   public void shouldSyncToPivotBlockInMultipleSegments(final DataStorageFormat storageFormat) {
     setup(storageFormat);
-    otherBlockchainSetup.importFirstBlocks(30);
 
     final RespondingEthPeer peer =
         EthProtocolManagerTestUtil.createPeer(ethProtocolManager, otherBlockchain);
@@ -138,6 +204,7 @@ public class CheckPointSyncChainDownloaderTest {
         SynchronizerConfiguration.builder()
             .downloaderChainSegmentSize(5)
             .downloaderHeadersRequestSize(3)
+            .isPeerTaskSystemEnabled(false)
             .build();
     final long pivotBlockNumber = 25;
     ethContext
@@ -163,7 +230,6 @@ public class CheckPointSyncChainDownloaderTest {
   @ArgumentsSource(CheckPointSyncChainDownloaderTestArguments.class)
   public void shouldSyncToPivotBlockInSingleSegment(final DataStorageFormat storageFormat) {
     setup(storageFormat);
-    otherBlockchainSetup.importFirstBlocks(30);
 
     final RespondingEthPeer peer =
         EthProtocolManagerTestUtil.createPeer(ethProtocolManager, otherBlockchain);
@@ -171,7 +237,8 @@ public class CheckPointSyncChainDownloaderTest {
         RespondingEthPeer.blockchainResponder(otherBlockchain);
 
     final long pivotBlockNumber = 10;
-    final SynchronizerConfiguration syncConfig = SynchronizerConfiguration.builder().build();
+    final SynchronizerConfiguration syncConfig =
+        SynchronizerConfiguration.builder().isPeerTaskSystemEnabled(false).build();
     ethContext
         .getEthPeers()
         .streamAvailablePeers()
@@ -189,5 +256,82 @@ public class CheckPointSyncChainDownloaderTest {
     assertThat(localBlockchain.getChainHeadBlockNumber()).isEqualTo(pivotBlockNumber);
     assertThat(localBlockchain.getChainHeadHeader())
         .isEqualTo(otherBlockchain.getBlockHeader(pivotBlockNumber).get());
+  }
+
+  @ParameterizedTest
+  @ArgumentsSource(CheckPointSyncChainDownloaderTestArguments.class)
+  public void shouldSyncToPivotBlockInMultipleSegmentsWithPeerTaskSystem(
+      final DataStorageFormat storageFormat) {
+    setup(storageFormat);
+
+    final RespondingEthPeer peer =
+        EthProtocolManagerTestUtil.createPeer(ethProtocolManager, otherBlockchain);
+    final RespondingEthPeer.Responder responder =
+        RespondingEthPeer.blockchainResponder(otherBlockchain);
+
+    final SynchronizerConfiguration syncConfig =
+        SynchronizerConfiguration.builder()
+            .downloaderChainSegmentSize(5)
+            .downloaderHeadersRequestSize(3)
+            .isPeerTaskSystemEnabled(true)
+            .build();
+    final long pivotBlockNumber = 25;
+    ethContext
+        .getEthPeers()
+        .streamAvailablePeers()
+        .forEach(
+            ethPeer -> {
+              ethPeer.setCheckpointHeader(
+                  otherBlockchainSetup.getBlocks().get((int) checkpoint.blockNumber()).getHeader());
+            });
+    final ChainDownloader downloader = downloader(syncConfig, pivotBlockNumber);
+    final CompletableFuture<Void> result = downloader.start();
+
+    peer.respondWhileOtherThreadsWork(responder, () -> !result.isDone());
+
+    assertThat(result).isCompleted();
+    assertThat(localBlockchain.getChainHeadBlockNumber()).isEqualTo(pivotBlockNumber);
+    assertThat(localBlockchain.getChainHeadHeader())
+        .isEqualTo(otherBlockchain.getBlockHeader(pivotBlockNumber).get());
+  }
+
+  @ParameterizedTest
+  @ArgumentsSource(CheckPointSyncChainDownloaderTestArguments.class)
+  public void shouldSyncToPivotBlockInSingleSegmentWithPeerTaskSystem(
+      final DataStorageFormat storageFormat) {
+    setup(storageFormat);
+
+    final RespondingEthPeer peer =
+        EthProtocolManagerTestUtil.createPeer(ethProtocolManager, otherBlockchain);
+    final RespondingEthPeer.Responder responder =
+        RespondingEthPeer.blockchainResponder(otherBlockchain);
+
+    final long pivotBlockNumber = 10;
+    final SynchronizerConfiguration syncConfig =
+        SynchronizerConfiguration.builder().isPeerTaskSystemEnabled(true).build();
+    ethContext
+        .getEthPeers()
+        .streamAvailablePeers()
+        .forEach(
+            ethPeer -> {
+              ethPeer.setCheckpointHeader(
+                  otherBlockchainSetup.getBlocks().get((int) checkpoint.blockNumber()).getHeader());
+            });
+    final ChainDownloader downloader = downloader(syncConfig, pivotBlockNumber);
+    final CompletableFuture<Void> result = downloader.start();
+
+    peer.respondWhileOtherThreadsWork(responder, () -> !result.isDone());
+
+    assertThat(result).isCompleted();
+    assertThat(localBlockchain.getChainHeadBlockNumber()).isEqualTo(pivotBlockNumber);
+    assertThat(localBlockchain.getChainHeadHeader())
+        .isEqualTo(otherBlockchain.getBlockHeader(pivotBlockNumber).get());
+  }
+
+  @Test
+  void dryRunDetector() {
+    assertThat(true)
+        .withFailMessage("This test is here so gradle --dry-run executes this class")
+        .isTrue();
   }
 }

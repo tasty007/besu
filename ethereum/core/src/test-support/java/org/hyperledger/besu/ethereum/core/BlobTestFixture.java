@@ -1,5 +1,5 @@
 /*
- * Copyright Hyperledger Besu Contributors.
+ * Copyright contributors to Hyperledger Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -12,7 +12,6 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-
 package org.hyperledger.besu.ethereum.core;
 
 import static org.assertj.core.api.Assertions.fail;
@@ -24,8 +23,6 @@ import org.hyperledger.besu.datatypes.KZGProof;
 import org.hyperledger.besu.datatypes.VersionedHash;
 import org.hyperledger.besu.evm.precompile.KZGPointEvalPrecompiledContract;
 
-import java.io.IOException;
-import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -36,6 +33,8 @@ import org.apache.tuweni.bytes.Bytes48;
 import org.bouncycastle.crypto.digests.SHA256Digest;
 
 public class BlobTestFixture {
+
+  private byte byteValue = 0x00;
 
   public BlobTestFixture() {
     try {
@@ -59,14 +58,8 @@ public class BlobTestFixture {
   ;
 
   public BlobTriplet createBlobTriplet() {
-    byte[] rawMaterial = {};
-    try (InputStream readme =
-        BlobTestFixture.class.getResourceAsStream(
-            "/org/hyperledger/besu/ethereum/core/encoding/BlobDataFixture.bin")) {
-      rawMaterial = readme.readAllBytes();
-    } catch (IOException e) {
-      fail("Failed to read blob file", e);
-    }
+    byte[] rawMaterial = new byte[131072];
+    rawMaterial[0] = byteValue++;
 
     Bytes48 commitment = Bytes48.wrap(CKZG4844JNI.blobToKzgCommitment(rawMaterial));
 

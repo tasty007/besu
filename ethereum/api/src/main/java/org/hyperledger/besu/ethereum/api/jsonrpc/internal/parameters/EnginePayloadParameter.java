@@ -1,5 +1,5 @@
 /*
- * Copyright Hyperledger Besu Contributors.
+ * Copyright contributors to Hyperledger Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.datatypes.parameters.UnsignedLongParameter;
 import org.hyperledger.besu.evm.log.LogsBloomFilter;
 
 import java.util.List;
@@ -43,7 +44,6 @@ public class EnginePayloadParameter {
   private final List<WithdrawalParameter> withdrawals;
   private final Long blobGasUsed;
   private final String excessBlobGas;
-  private final List<DepositParameter> deposits;
 
   /**
    * Creates an instance of EnginePayloadParameter.
@@ -65,7 +65,6 @@ public class EnginePayloadParameter {
    * @param withdrawals Array of Withdrawal
    * @param blobGasUsed QUANTITY, 64 Bits
    * @param excessBlobGas QUANTITY, 64 Bits
-   * @param deposits List of deposit parameters.
    */
   @JsonCreator
   public EnginePayloadParameter(
@@ -85,8 +84,7 @@ public class EnginePayloadParameter {
       @JsonProperty("transactions") final List<String> transactions,
       @JsonProperty("withdrawals") final List<WithdrawalParameter> withdrawals,
       @JsonProperty("blobGasUsed") final UnsignedLongParameter blobGasUsed,
-      @JsonProperty("excessBlobGas") final String excessBlobGas,
-      @JsonProperty("depositReceipts") final List<DepositParameter> deposits) {
+      @JsonProperty("excessBlobGas") final String excessBlobGas) {
     this.blockHash = blockHash;
     this.parentHash = parentHash;
     this.feeRecipient = feeRecipient;
@@ -104,7 +102,6 @@ public class EnginePayloadParameter {
     this.withdrawals = withdrawals;
     this.blobGasUsed = blobGasUsed == null ? null : blobGasUsed.getValue();
     this.excessBlobGas = excessBlobGas;
-    this.deposits = deposits;
   }
 
   public Hash getBlockHash() {
@@ -173,9 +170,5 @@ public class EnginePayloadParameter {
 
   public String getExcessBlobGas() {
     return excessBlobGas;
-  }
-
-  public List<DepositParameter> getDeposits() {
-    return deposits;
   }
 }

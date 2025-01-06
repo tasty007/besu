@@ -1,5 +1,5 @@
 /*
- * Copyright Hyperledger Besu Contributors.
+ * Copyright contributors to Hyperledger Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -15,23 +15,24 @@
 package org.hyperledger.besu.cli.options;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.hyperledger.besu.ethereum.core.MiningParameters.DEFAULT_NON_POA_BLOCK_TXS_SELECTION_MAX_TIME;
-import static org.hyperledger.besu.ethereum.core.MiningParameters.DEFAULT_POA_BLOCK_TXS_SELECTION_MAX_TIME;
-import static org.hyperledger.besu.ethereum.core.MiningParameters.Unstable.DEFAULT_POS_BLOCK_CREATION_MAX_TIME;
+import static org.hyperledger.besu.ethereum.core.MiningConfiguration.DEFAULT_NON_POA_BLOCK_TXS_SELECTION_MAX_TIME;
+import static org.hyperledger.besu.ethereum.core.MiningConfiguration.DEFAULT_POA_BLOCK_TXS_SELECTION_MAX_TIME;
+import static org.hyperledger.besu.ethereum.core.MiningConfiguration.Unstable.DEFAULT_POS_BLOCK_CREATION_MAX_TIME;
 import static org.mockito.Mockito.atMost;
 import static org.mockito.Mockito.verify;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.GasLimitCalculator;
-import org.hyperledger.besu.ethereum.core.ImmutableMiningParameters;
-import org.hyperledger.besu.ethereum.core.ImmutableMiningParameters.MutableInitValues;
-import org.hyperledger.besu.ethereum.core.ImmutableMiningParameters.Unstable;
-import org.hyperledger.besu.ethereum.core.MiningParameters;
+import org.hyperledger.besu.ethereum.core.ImmutableMiningConfiguration;
+import org.hyperledger.besu.ethereum.core.ImmutableMiningConfiguration.MutableInitValues;
+import org.hyperledger.besu.ethereum.core.ImmutableMiningConfiguration.Unstable;
+import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.util.number.PositiveNumber;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -41,7 +42,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
-public class MiningOptionsTest extends AbstractCLIOptionsTest<MiningParameters, MiningOptions> {
+public class MiningOptionsTest extends AbstractCLIOptionsTest<MiningConfiguration, MiningOptions> {
 
   @Test
   public void besuDoesNotStartInMiningModeIfCoinbaseNotSet() {
@@ -314,6 +315,7 @@ public class MiningOptionsTest extends AbstractCLIOptionsTest<MiningParameters, 
   @Test
   public void blockTxsSelectionMaxTimeDefaultValue() {
     internalTestSuccess(
+        this::runtimeConfiguration,
         miningParams ->
             assertThat(miningParams.getNonPoaBlockTxsSelectionMaxTime())
                 .isEqualTo(DEFAULT_NON_POA_BLOCK_TXS_SELECTION_MAX_TIME));
@@ -322,6 +324,7 @@ public class MiningOptionsTest extends AbstractCLIOptionsTest<MiningParameters, 
   @Test
   public void blockTxsSelectionMaxTimeOption() {
     internalTestSuccess(
+        this::runtimeConfiguration,
         miningParams -> assertThat(miningParams.getBlockTxsSelectionMaxTime()).isEqualTo(1700L),
         "--block-txs-selection-max-time",
         "1700");
@@ -341,6 +344,7 @@ public class MiningOptionsTest extends AbstractCLIOptionsTest<MiningParameters, 
   @Test
   public void poaBlockTxsSelectionMaxTimeDefaultValue() {
     internalTestSuccess(
+        this::runtimeConfiguration,
         miningParams ->
             assertThat(miningParams.getPoaBlockTxsSelectionMaxTime())
                 .isEqualTo(DEFAULT_POA_BLOCK_TXS_SELECTION_MAX_TIME));
@@ -350,6 +354,7 @@ public class MiningOptionsTest extends AbstractCLIOptionsTest<MiningParameters, 
   public void poaBlockTxsSelectionMaxTimeOption() throws IOException {
     final Path genesisFileIBFT2 = createFakeGenesisFile(VALID_GENESIS_IBFT2_POST_LONDON);
     internalTestSuccess(
+        this::runtimeConfiguration,
         miningParams ->
             assertThat(miningParams.getPoaBlockTxsSelectionMaxTime())
                 .isEqualTo(PositiveNumber.fromInt(80)),
@@ -361,13 +366,17 @@ public class MiningOptionsTest extends AbstractCLIOptionsTest<MiningParameters, 
 
   @Test
   public void poaBlockTxsSelectionMaxTimeOptionOver100Percent() throws IOException {
-    final Path genesisFileIBFT2 = createFakeGenesisFile(VALID_GENESIS_IBFT2_POST_LONDON);
+    final Path genesisFileClique = createFakeGenesisFile(VALID_GENESIS_CLIQUE_POST_LONDON);
     internalTestSuccess(
-        miningParams ->
-            assertThat(miningParams.getPoaBlockTxsSelectionMaxTime())
-                .isEqualTo(PositiveNumber.fromInt(200)),
+        this::runtimeConfiguration,
+        miningParams -> {
+          assertThat(miningParams.getPoaBlockTxsSelectionMaxTime())
+              .isEqualTo(PositiveNumber.fromInt(200));
+          assertThat(miningParams.getBlockTxsSelectionMaxTime())
+              .isEqualTo(Duration.ofSeconds(POA_BLOCK_PERIOD_SECONDS * 2).toMillis());
+        },
         "--genesis-file",
-        genesisFileIBFT2.toString(),
+        genesisFileClique.toString(),
         "--poa-block-txs-selection-max-time",
         "200");
   }
@@ -381,13 +390,13 @@ public class MiningOptionsTest extends AbstractCLIOptionsTest<MiningParameters, 
   }
 
   @Override
-  protected MiningParameters createDefaultDomainObject() {
-    return MiningParameters.newDefault();
+  protected MiningConfiguration createDefaultDomainObject() {
+    return MiningConfiguration.newDefault();
   }
 
   @Override
-  protected MiningParameters createCustomizedDomainObject() {
-    return ImmutableMiningParameters.builder()
+  protected MiningConfiguration createCustomizedDomainObject() {
+    return ImmutableMiningConfiguration.builder()
         .mutableInitValues(
             MutableInitValues.builder()
                 .isMiningEnabled(true)
@@ -401,12 +410,25 @@ public class MiningOptionsTest extends AbstractCLIOptionsTest<MiningParameters, 
   }
 
   @Override
-  protected MiningOptions optionsFromDomainObject(final MiningParameters domainObject) {
+  protected MiningOptions optionsFromDomainObject(final MiningConfiguration domainObject) {
     return MiningOptions.fromConfig(domainObject);
   }
 
   @Override
   protected MiningOptions getOptionsFromBesuCommand(final TestBesuCommand besuCommand) {
     return besuCommand.getMiningOptions();
+  }
+
+  @Override
+  protected String[] getNonOptionFields() {
+    return new String[] {"transactionSelectionService"};
+  }
+
+  private MiningConfiguration runtimeConfiguration(
+      final TestBesuCommand besuCommand, final MiningConfiguration miningConfiguration) {
+    if (besuCommand.getGenesisConfigOptions().isPoa()) {
+      miningConfiguration.setBlockPeriodSeconds(POA_BLOCK_PERIOD_SECONDS);
+    }
+    return miningConfiguration;
   }
 }

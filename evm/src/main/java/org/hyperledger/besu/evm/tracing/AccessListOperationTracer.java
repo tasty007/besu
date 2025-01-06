@@ -30,6 +30,11 @@ public class AccessListOperationTracer extends EstimateGasOperationTracer {
 
   private Table<Address, Bytes32, Boolean> warmedUpStorage;
 
+  /** Default constructor. */
+  private AccessListOperationTracer() {
+    super();
+  }
+
   @Override
   public void tracePostExecution(final MessageFrame frame, final OperationResult operationResult) {
     super.tracePostExecution(frame, operationResult);
@@ -42,15 +47,16 @@ public class AccessListOperationTracer extends EstimateGasOperationTracer {
    * @return the access list
    */
   public List<AccessListEntry> getAccessList() {
-    final List<AccessListEntry> list = new ArrayList<>();
     if (warmedUpStorage != null && !warmedUpStorage.isEmpty()) {
+      final List<AccessListEntry> list = new ArrayList<>(warmedUpStorage.size());
       warmedUpStorage
           .rowMap()
           .forEach(
               (address, storageKeys) ->
                   list.add(new AccessListEntry(address, new ArrayList<>(storageKeys.keySet()))));
+      return list;
     }
-    return list;
+    return List.of();
   }
 
   /**

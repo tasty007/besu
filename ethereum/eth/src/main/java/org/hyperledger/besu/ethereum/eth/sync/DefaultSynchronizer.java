@@ -22,9 +22,11 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.core.Synchronizer;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
+import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutor;
 import org.hyperledger.besu.ethereum.eth.sync.checkpointsync.CheckpointDownloaderFactory;
 import org.hyperledger.besu.ethereum.eth.sync.fastsync.FastSyncDownloader;
 import org.hyperledger.besu.ethereum.eth.sync.fastsync.FastSyncState;
+import org.hyperledger.besu.ethereum.eth.sync.fastsync.NoSyncRequiredState;
 import org.hyperledger.besu.ethereum.eth.sync.fastsync.worldstate.FastDownloaderFactory;
 import org.hyperledger.besu.ethereum.eth.sync.fullsync.FullSyncDownloader;
 import org.hyperledger.besu.ethereum.eth.sync.fullsync.SyncTerminationCondition;
@@ -34,11 +36,12 @@ import org.hyperledger.besu.ethereum.eth.sync.state.PendingBlocksManager;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.storage.StorageProvider;
-import org.hyperledger.besu.ethereum.trie.bonsai.BonsaiWorldStateProvider;
-import org.hyperledger.besu.ethereum.trie.forest.pruner.Pruner;
-import org.hyperledger.besu.ethereum.worldstate.WorldStateStorage;
+import org.hyperledger.besu.ethereum.trie.diffbased.bonsai.BonsaiWorldStateProvider;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.metrics.BesuMetricCategory;
+import org.hyperledger.besu.metrics.SyncDurationMetrics;
 import org.hyperledger.besu.plugin.data.SyncStatus;
+import org.hyperledger.besu.plugin.services.BesuEvents;
 import org.hyperledger.besu.plugin.services.BesuEvents.SyncStatusListener;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.util.log.FramedLogMessage;
@@ -62,11 +65,11 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
 
   private static final Logger LOG = LoggerFactory.getLogger(DefaultSynchronizer.class);
 
-  private final Optional<Pruner> maybePruner;
   private final SyncState syncState;
   private final AtomicBoolean running = new AtomicBoolean(false);
   private final Optional<BlockPropagationManager> blockPropagationManager;
   private final Supplier<Optional<FastSyncDownloader<?>>> fastSyncFactory;
+  private final SyncDurationMetrics syncDurationMetrics;
   private Optional<FastSyncDownloader<?>> fastSyncDownloader;
   private final Optional<FullSyncDownloader> fullSyncDownloader;
   private final ProtocolContext protocolContext;
@@ -77,10 +80,10 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
       final SynchronizerConfiguration syncConfig,
       final ProtocolSchedule protocolSchedule,
       final ProtocolContext protocolContext,
-      final WorldStateStorage worldStateStorage,
+      final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final BlockBroadcaster blockBroadcaster,
-      final Optional<Pruner> maybePruner,
       final EthContext ethContext,
+      final PeerTaskExecutor peerTaskExecutor,
       final SyncState syncState,
       final Path dataDirectory,
       final StorageProvider storageProvider,
@@ -88,7 +91,6 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
       final MetricsSystem metricsSystem,
       final SyncTerminationCondition terminationCondition,
       final PivotBlockSelector pivotBlockSelector) {
-    this.maybePruner = maybePruner;
     this.syncState = syncState;
     this.pivotBlockSelector = pivotBlockSelector;
     this.protocolContext = protocolContext;
@@ -97,9 +99,15 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
     ChainHeadTracker.trackChainHeadForPeers(
         ethContext,
         protocolSchedule,
+        syncConfig,
         protocolContext.getBlockchain(),
         this::calculateTrailingPeerRequirements,
         metricsSystem);
+
+    if (syncConfig.getSyncMode() == SyncMode.SNAP
+        || syncConfig.getSyncMode() == SyncMode.CHECKPOINT) {
+      SnapServerChecker.createAndSetSnapServerChecker(ethContext, metricsSystem);
+    }
 
     this.blockPropagationManager =
         terminationCondition.shouldStopDownload()
@@ -115,6 +123,8 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
                     metricsSystem,
                     blockBroadcaster));
 
+    syncDurationMetrics = new SyncDurationMetrics(metricsSystem);
+
     this.fullSyncDownloader =
         terminationCondition.shouldStopDownload()
             ? Optional.empty()
@@ -126,7 +136,8 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
                     ethContext,
                     syncState,
                     metricsSystem,
-                    terminationCondition));
+                    terminationCondition,
+                    syncDurationMetrics));
 
     if (SyncMode.FAST.equals(syncConfig.getSyncMode())) {
       this.fastSyncFactory =
@@ -139,10 +150,11 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
                   protocolContext,
                   metricsSystem,
                   ethContext,
-                  worldStateStorage,
+                  worldStateStorageCoordinator,
                   syncState,
-                  clock);
-    } else if (SyncMode.X_CHECKPOINT.equals(syncConfig.getSyncMode())) {
+                  clock,
+                  syncDurationMetrics);
+    } else if (syncConfig.getSyncMode() == SyncMode.CHECKPOINT) {
       this.fastSyncFactory =
           () ->
               CheckpointDownloaderFactory.createCheckpointDownloader(
@@ -154,9 +166,10 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
                   protocolContext,
                   metricsSystem,
                   ethContext,
-                  worldStateStorage,
+                  worldStateStorageCoordinator,
                   syncState,
-                  clock);
+                  clock,
+                  syncDurationMetrics);
     } else {
       this.fastSyncFactory =
           () ->
@@ -169,9 +182,10 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
                   protocolContext,
                   metricsSystem,
                   ethContext,
-                  worldStateStorage,
+                  worldStateStorageCoordinator,
                   syncState,
-                  clock);
+                  clock,
+                  syncDurationMetrics);
     }
 
     // create a non-resync fast sync downloader:
@@ -189,7 +203,7 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
         () -> getSyncStatus().isPresent() ? 0 : 1);
   }
 
-  private TrailingPeerRequirements calculateTrailingPeerRequirements() {
+  public TrailingPeerRequirements calculateTrailingPeerRequirements() {
     return fastSyncDownloader
         .flatMap(FastSyncDownloader::calculateTrailingPeerRequirements)
         .orElse(
@@ -202,6 +216,9 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
   public CompletableFuture<Void> start() {
     if (running.compareAndSet(false, true)) {
       LOG.info("Starting synchronizer.");
+
+      syncDurationMetrics.startTimer(SyncDurationMetrics.Labels.TOTAL_SYNC_DURATION);
+
       blockPropagationManager.ifPresent(
           manager -> {
             if (!manager.isRunning()) {
@@ -228,7 +245,6 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
       LOG.info("Stopping synchronizer");
       fastSyncDownloader.ifPresent(FastSyncDownloader::stop);
       fullSyncDownloader.ifPresent(FullSyncDownloader::stop);
-      maybePruner.ifPresent(Pruner::stop);
       blockPropagationManager.ifPresent(
           manager -> {
             if (manager.isRunning()) {
@@ -239,27 +255,31 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
   }
 
   @Override
-  public void awaitStop() throws InterruptedException {
-    if (maybePruner.isPresent()) {
-      maybePruner.get().awaitStop();
-    }
-  }
+  public void awaitStop() {}
 
   private CompletableFuture<Void> handleSyncResult(final FastSyncState result) {
     if (!running.get()) {
       // We've been shutdown which will have triggered the fast sync future to complete
       return CompletableFuture.completedFuture(null);
     }
-    fastSyncDownloader.ifPresent(FastSyncDownloader::deleteFastSyncState);
-    result
-        .getPivotBlockHeader()
-        .ifPresent(
-            blockHeader -> protocolContext.getWorldStateArchive().resetArchiveStateTo(blockHeader));
-    LOG.info(
-        "Sync completed successfully with pivot block {}",
-        result.getPivotBlockNumber().getAsLong());
-    pivotBlockSelector.close();
-    syncState.markInitialSyncPhaseAsDone();
+
+    if (result instanceof NoSyncRequiredState) {
+      LOG.info("Sync ended (no sync required)");
+      syncState.markInitialSyncPhaseAsDone();
+    } else {
+      fastSyncDownloader.ifPresent(FastSyncDownloader::deleteFastSyncState);
+      result
+          .getPivotBlockHeader()
+          .ifPresent(
+              blockHeader ->
+                  protocolContext.getWorldStateArchive().resetArchiveStateTo(blockHeader));
+      if (result.hasPivotBlockHash())
+        LOG.info(
+            "Sync completed successfully with pivot block {}",
+            result.getPivotBlockNumber().getAsLong());
+      pivotBlockSelector.close();
+      syncState.markInitialSyncPhaseAsDone();
+    }
 
     if (terminationCondition.shouldContinueDownload()) {
       return startFullSync();
@@ -270,7 +290,6 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
   }
 
   private CompletableFuture<Void> startFullSync() {
-    maybePruner.ifPresent(Pruner::start);
     return fullSyncDownloader
         .map(FullSyncDownloader::start)
         .orElse(CompletableFuture.completedFuture(null))
@@ -372,12 +391,25 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
     return syncState.unsubscribeSyncStatus(listenerId);
   }
 
+  @Override
+  public long subscribeInitialSync(final BesuEvents.InitialSyncCompletionListener listener) {
+    return syncState.subscribeCompletionReached(listener);
+  }
+
+  @Override
+  public boolean unsubscribeInitialSync(final long listenerId) {
+    return syncState.unsubscribeInitialConditionReached(listenerId);
+  }
+
   private Void finalizeSync(final Void unused) {
     LOG.info("Stopping block propagation.");
     blockPropagationManager.ifPresent(BlockPropagationManager::stop);
     LOG.info("Stopping the pruner.");
-    maybePruner.ifPresent(Pruner::stop);
     running.set(false);
+
+    syncDurationMetrics.stopTimer(SyncDurationMetrics.Labels.FLAT_DB_HEAL);
+    syncDurationMetrics.stopTimer(SyncDurationMetrics.Labels.TOTAL_SYNC_DURATION);
+
     return null;
   }
 

@@ -16,14 +16,18 @@ package org.hyperledger.besu.chainimport;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
 
-import org.hyperledger.besu.config.GenesisConfigFile;
-import org.hyperledger.besu.config.MergeConfigOptions;
+import org.hyperledger.besu.cli.config.EthNetworkConfig;
+import org.hyperledger.besu.cli.config.NetworkName;
+import org.hyperledger.besu.components.BesuComponent;
+import org.hyperledger.besu.config.MergeConfiguration;
 import org.hyperledger.besu.controller.BesuController;
 import org.hyperledger.besu.cryptoservices.NodeKeyUtils;
 import org.hyperledger.besu.ethereum.GasLimitCalculator;
+import org.hyperledger.besu.ethereum.api.ImmutableApiConfiguration;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
-import org.hyperledger.besu.ethereum.core.MiningParameters;
+import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.PrivacyParameters;
 import org.hyperledger.besu.ethereum.eth.EthProtocolConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.SyncMode;
@@ -60,12 +64,13 @@ public final class RlpBlockImporterTest {
     BlockTestUtil.write1000Blocks(source);
     final BesuController targetController =
         new BesuController.Builder()
-            .fromGenesisConfig(GenesisConfigFile.mainnet(), SyncMode.FAST)
+            .fromEthNetworkConfig(
+                EthNetworkConfig.getNetworkConfig(NetworkName.MAINNET), SyncMode.FAST)
             .synchronizerConfiguration(SynchronizerConfiguration.builder().build())
             .ethProtocolConfiguration(EthProtocolConfiguration.defaultConfig())
             .storageProvider(new InMemoryKeyValueStorageProvider())
             .networkId(BigInteger.ONE)
-            .miningParameters(MiningParameters.newDefault())
+            .miningParameters(MiningConfiguration.newDefault())
             .nodeKey(NodeKeyUtils.generate())
             .metricsSystem(new NoOpMetricsSystem())
             .privacyParameters(PrivacyParameters.DEFAULT)
@@ -75,6 +80,8 @@ public final class RlpBlockImporterTest {
             .gasLimitCalculator(GasLimitCalculator.constant())
             .evmConfiguration(EvmConfiguration.DEFAULT)
             .networkConfiguration(NetworkingConfiguration.create())
+            .besuComponent(mock(BesuComponent.class))
+            .apiConfiguration(ImmutableApiConfiguration.builder().build())
             .build();
     final RlpBlockImporter.ImportResult result =
         rlpBlockImporter.importBlockchain(source, targetController, false);
@@ -86,18 +93,19 @@ public final class RlpBlockImporterTest {
   @Test
   public void blockImportRejectsBadPow() throws IOException {
     // set merge flag to false, otherwise this test can fail if a merge test runs first
-    MergeConfigOptions.setMergeEnabled(false);
+    MergeConfiguration.setMergeEnabled(false);
 
     final Path source = dataDir.resolve("badpow.blocks");
     BlockTestUtil.writeBadPowBlocks(source);
     final BesuController targetController =
         new BesuController.Builder()
-            .fromGenesisConfig(GenesisConfigFile.mainnet(), SyncMode.FAST)
+            .fromEthNetworkConfig(
+                EthNetworkConfig.getNetworkConfig(NetworkName.MAINNET), SyncMode.FAST)
             .synchronizerConfiguration(SynchronizerConfiguration.builder().build())
             .ethProtocolConfiguration(EthProtocolConfiguration.defaultConfig())
             .storageProvider(new InMemoryKeyValueStorageProvider())
             .networkId(BigInteger.ONE)
-            .miningParameters(MiningParameters.newDefault())
+            .miningParameters(MiningConfiguration.newDefault())
             .nodeKey(NodeKeyUtils.generate())
             .metricsSystem(new NoOpMetricsSystem())
             .privacyParameters(PrivacyParameters.DEFAULT)
@@ -107,6 +115,8 @@ public final class RlpBlockImporterTest {
             .gasLimitCalculator(GasLimitCalculator.constant())
             .evmConfiguration(EvmConfiguration.DEFAULT)
             .networkConfiguration(NetworkingConfiguration.create())
+            .besuComponent(mock(BesuComponent.class))
+            .apiConfiguration(ImmutableApiConfiguration.builder().build())
             .build();
 
     assertThatThrownBy(
@@ -121,12 +131,13 @@ public final class RlpBlockImporterTest {
     BlockTestUtil.writeBadPowBlocks(source);
     final BesuController targetController =
         new BesuController.Builder()
-            .fromGenesisConfig(GenesisConfigFile.mainnet(), SyncMode.FAST)
+            .fromEthNetworkConfig(
+                EthNetworkConfig.getNetworkConfig(NetworkName.MAINNET), SyncMode.FAST)
             .synchronizerConfiguration(SynchronizerConfiguration.builder().build())
             .ethProtocolConfiguration(EthProtocolConfiguration.defaultConfig())
             .storageProvider(new InMemoryKeyValueStorageProvider())
             .networkId(BigInteger.ONE)
-            .miningParameters(MiningParameters.newDefault())
+            .miningParameters(MiningConfiguration.newDefault())
             .nodeKey(NodeKeyUtils.generate())
             .metricsSystem(new NoOpMetricsSystem())
             .privacyParameters(PrivacyParameters.DEFAULT)
@@ -136,6 +147,8 @@ public final class RlpBlockImporterTest {
             .gasLimitCalculator(GasLimitCalculator.constant())
             .evmConfiguration(EvmConfiguration.DEFAULT)
             .networkConfiguration(NetworkingConfiguration.create())
+            .besuComponent(mock(BesuComponent.class))
+            .apiConfiguration(ImmutableApiConfiguration.builder().build())
             .build();
 
     final RlpBlockImporter.ImportResult result =

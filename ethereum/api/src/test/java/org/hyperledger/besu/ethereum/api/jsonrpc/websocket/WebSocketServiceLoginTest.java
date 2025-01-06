@@ -1,5 +1,5 @@
 /*
- * Copyright Hyperledger Besu contributors
+ * Copyright contributors to Hyperledger Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -26,6 +26,7 @@ import static org.mockito.Mockito.spy;
 import org.hyperledger.besu.config.StubGenesisConfigOptions;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.ApiConfiguration;
+import org.hyperledger.besu.ethereum.api.graphql.GraphQLConfiguration;
 import org.hyperledger.besu.ethereum.api.handlers.TimeoutOptions;
 import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcHttpService;
@@ -42,7 +43,8 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.methods.WebSocketMeth
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.SubscriptionManager;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.blockcreation.PoWMiningCoordinator;
-import org.hyperledger.besu.ethereum.core.MiningParameters;
+import org.hyperledger.besu.ethereum.chain.BadBlockManager;
+import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.PrivacyParameters;
 import org.hyperledger.besu.ethereum.core.Synchronizer;
 import org.hyperledger.besu.ethereum.eth.EthProtocol;
@@ -52,6 +54,7 @@ import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.MainnetProtocolSchedule;
 import org.hyperledger.besu.ethereum.p2p.network.P2PNetwork;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
+import org.hyperledger.besu.ethereum.transaction.TransactionSimulator;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.metrics.prometheus.MetricsConfiguration;
 import org.hyperledger.besu.nat.NatService;
@@ -114,7 +117,9 @@ public class WebSocketServiceLoginTest {
   protected static OkHttpClient client;
   protected static String baseUrl;
   protected static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
-  protected static final String CLIENT_VERSION = "TestClientVersion/0.1.0";
+  protected static final String CLIENT_NODE_NAME = "TestClientVersion/0.1.0";
+  protected static final String CLIENT_VERSION = "0.1.0";
+  protected static final String CLIENT_COMMIT = "12345678";
   protected static final BigInteger CHAIN_ID = BigInteger.valueOf(123);
   protected static P2PNetwork peerDiscoveryMock;
   protected static BlockchainQueries blockchainQueries;
@@ -166,17 +171,24 @@ public class WebSocketServiceLoginTest {
         spy(
             new JsonRpcMethodsFactory()
                 .methods(
+                    CLIENT_NODE_NAME,
                     CLIENT_VERSION,
+                    CLIENT_COMMIT,
                     CHAIN_ID,
                     genesisConfigOptions,
                     peerDiscoveryMock,
                     blockchainQueries,
                     synchronizer,
-                    MainnetProtocolSchedule.fromConfig(genesisConfigOptions),
+                    MainnetProtocolSchedule.fromConfig(
+                        genesisConfigOptions,
+                        MiningConfiguration.MINING_DISABLED,
+                        new BadBlockManager(),
+                        false,
+                        new NoOpMetricsSystem()),
                     mock(ProtocolContext.class),
                     mock(FilterManager.class),
                     mock(TransactionPool.class),
-                    mock(MiningParameters.class),
+                    mock(MiningConfiguration.class),
                     mock(PoWMiningCoordinator.class),
                     new NoOpMetricsSystem(),
                     supportedCapabilities,
@@ -187,13 +199,15 @@ public class WebSocketServiceLoginTest {
                     mock(JsonRpcConfiguration.class),
                     mock(WebSocketConfiguration.class),
                     mock(MetricsConfiguration.class),
+                    mock(GraphQLConfiguration.class),
                     natService,
                     new HashMap<>(),
                     folder,
                     mock(EthPeers.class),
                     vertx,
                     mock(ApiConfiguration.class),
-                    Optional.empty()));
+                    Optional.empty(),
+                    mock(TransactionSimulator.class)));
 
     websocketMethods.putAll(rpcMethods);
     webSocketMessageHandlerSpy =

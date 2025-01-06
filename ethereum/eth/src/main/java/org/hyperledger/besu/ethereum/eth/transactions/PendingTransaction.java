@@ -1,5 +1,5 @@
 /*
- * Copyright Besu contributors.
+ * Copyright contributors to Hyperledger Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -13,6 +13,24 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 package org.hyperledger.besu.ethereum.eth.transactions;
+
+import static org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.MemorySize.ACCESS_LIST_ENTRY_SHALLOW_SIZE;
+import static org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.MemorySize.ACCESS_LIST_STORAGE_KEY_SIZE;
+import static org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.MemorySize.BLOBS_WITH_COMMITMENTS_SIZE;
+import static org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.MemorySize.BLOB_SIZE;
+import static org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.MemorySize.CODE_DELEGATION_ENTRY_SIZE;
+import static org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.MemorySize.EIP1559_AND_EIP4844_SHALLOW_SIZE;
+import static org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.MemorySize.FRONTIER_AND_ACCESS_LIST_SHALLOW_SIZE;
+import static org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.MemorySize.KZG_COMMITMENT_OR_PROOF_SIZE;
+import static org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.MemorySize.LIST_SHALLOW_SIZE;
+import static org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.MemorySize.OPTIONAL_ACCESS_LIST_SHALLOW_SIZE;
+import static org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.MemorySize.OPTIONAL_CHAIN_ID_SIZE;
+import static org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.MemorySize.OPTIONAL_CODE_DELEGATION_LIST_SHALLOW_SIZE;
+import static org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.MemorySize.OPTIONAL_SHALLOW_SIZE;
+import static org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.MemorySize.OPTIONAL_TO_SIZE;
+import static org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.MemorySize.PAYLOAD_SHALLOW_SIZE;
+import static org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.MemorySize.PENDING_TRANSACTION_SHALLOW_SIZE;
+import static org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.MemorySize.VERSIONED_HASH_SIZE;
 
 import org.hyperledger.besu.datatypes.AccessListEntry;
 import org.hyperledger.besu.datatypes.Address;
@@ -31,37 +49,24 @@ import java.util.concurrent.atomic.AtomicLong;
 public abstract class PendingTransaction
     implements org.hyperledger.besu.datatypes.PendingTransaction {
   static final int NOT_INITIALIZED = -1;
-  static final int FRONTIER_AND_ACCESS_LIST_BASE_MEMORY_SIZE = 872;
-  static final int EIP1559_AND_EIP4844_BASE_MEMORY_SIZE = 984;
-  static final int OPTIONAL_TO_MEMORY_SIZE = 112;
-  static final int OPTIONAL_CHAIN_ID_MEMORY_SIZE = 80;
-  static final int PAYLOAD_BASE_MEMORY_SIZE = 32;
-  static final int ACCESS_LIST_STORAGE_KEY_MEMORY_SIZE = 32;
-  static final int ACCESS_LIST_ENTRY_BASE_MEMORY_SIZE = 248;
-  static final int OPTIONAL_ACCESS_LIST_MEMORY_SIZE = 24;
-  static final int VERSIONED_HASH_SIZE = 96;
-  static final int BASE_LIST_SIZE = 48;
-  static final int BASE_OPTIONAL_SIZE = 16;
-  static final int KZG_COMMITMENT_OR_PROOF_SIZE = 112;
-  static final int BLOB_SIZE = 131136;
-  static final int BLOBS_WITH_COMMITMENTS_SIZE = 40;
-  static final int PENDING_TRANSACTION_MEMORY_SIZE = 40;
   private static final AtomicLong TRANSACTIONS_ADDED = new AtomicLong();
   private final Transaction transaction;
   private final long addedAt;
   private final long sequence; // Allows prioritization based on order transactions are added
+  private volatile byte score;
 
   private int memorySize = NOT_INITIALIZED;
 
   private PendingTransaction(
-      final Transaction transaction, final long addedAt, final long sequence) {
+      final Transaction transaction, final long addedAt, final long sequence, final byte score) {
     this.transaction = transaction;
     this.addedAt = addedAt;
     this.sequence = sequence;
+    this.score = score;
   }
 
   private PendingTransaction(final Transaction transaction, final long addedAt) {
-    this(transaction, addedAt, TRANSACTIONS_ADDED.getAndIncrement());
+    this(transaction, addedAt, TRANSACTIONS_ADDED.getAndIncrement(), Byte.MAX_VALUE);
   }
 
   public static PendingTransaction newPendingTransaction(
@@ -123,6 +128,20 @@ public abstract class PendingTransaction
     return memorySize;
   }
 
+  public byte getScore() {
+    return score;
+  }
+
+  public void decrementScore() {
+    // use temp var to avoid non-atomic update of volatile var
+    final byte newScore = (byte) (score - 1);
+
+    // check to avoid underflow
+    if (newScore < score) {
+      score = newScore;
+    }
+  }
+
   public abstract PendingTransaction detachedCopy();
 
   private int computeMemorySize() {
@@ -131,19 +150,20 @@ public abstract class PendingTransaction
           case ACCESS_LIST -> computeAccessListMemorySize();
           case EIP1559 -> computeEIP1559MemorySize();
           case BLOB -> computeBlobMemorySize();
+          case DELEGATE_CODE -> computeDelegateCodeMemorySize();
         }
-        + PENDING_TRANSACTION_MEMORY_SIZE;
+        + PENDING_TRANSACTION_SHALLOW_SIZE;
   }
 
   private int computeFrontierMemorySize() {
-    return FRONTIER_AND_ACCESS_LIST_BASE_MEMORY_SIZE
+    return FRONTIER_AND_ACCESS_LIST_SHALLOW_SIZE
         + computePayloadMemorySize()
         + computeToMemorySize()
         + computeChainIdMemorySize();
   }
 
   private int computeAccessListMemorySize() {
-    return FRONTIER_AND_ACCESS_LIST_BASE_MEMORY_SIZE
+    return FRONTIER_AND_ACCESS_LIST_SHALLOW_SIZE
         + computePayloadMemorySize()
         + computeToMemorySize()
         + computeChainIdMemorySize()
@@ -151,7 +171,7 @@ public abstract class PendingTransaction
   }
 
   private int computeEIP1559MemorySize() {
-    return EIP1559_AND_EIP4844_BASE_MEMORY_SIZE
+    return EIP1559_AND_EIP4844_SHALLOW_SIZE
         + computePayloadMemorySize()
         + computeToMemorySize()
         + computeChainIdMemorySize()
@@ -160,37 +180,41 @@ public abstract class PendingTransaction
 
   private int computeBlobMemorySize() {
     return computeEIP1559MemorySize()
-        + BASE_OPTIONAL_SIZE // for the versionedHashes field
+        + OPTIONAL_SHALLOW_SIZE // for the versionedHashes field
         + computeBlobWithCommitmentsMemorySize();
+  }
+
+  private int computeDelegateCodeMemorySize() {
+    return computeEIP1559MemorySize() + computeCodeDelegationListMemorySize();
   }
 
   private int computeBlobWithCommitmentsMemorySize() {
     final int blobCount = transaction.getBlobCount();
 
-    return BASE_OPTIONAL_SIZE
+    return OPTIONAL_SHALLOW_SIZE
         + BLOBS_WITH_COMMITMENTS_SIZE
-        + (BASE_LIST_SIZE * 4)
+        + (LIST_SHALLOW_SIZE * 4)
         + (KZG_COMMITMENT_OR_PROOF_SIZE * blobCount * 2)
         + (VERSIONED_HASH_SIZE * blobCount)
         + (BLOB_SIZE * blobCount);
   }
 
   private int computePayloadMemorySize() {
-    return transaction.getPayload().size() > 0
-        ? PAYLOAD_BASE_MEMORY_SIZE + transaction.getPayload().size()
+    return !transaction.getPayload().isEmpty()
+        ? PAYLOAD_SHALLOW_SIZE + transaction.getPayload().size()
         : 0;
   }
 
   private int computeToMemorySize() {
     if (transaction.getTo().isPresent()) {
-      return OPTIONAL_TO_MEMORY_SIZE;
+      return OPTIONAL_TO_SIZE;
     }
     return 0;
   }
 
   private int computeChainIdMemorySize() {
     if (transaction.getChainId().isPresent()) {
-      return OPTIONAL_CHAIN_ID_MEMORY_SIZE;
+      return OPTIONAL_CHAIN_ID_SIZE;
     }
     return 0;
   }
@@ -200,11 +224,23 @@ public abstract class PendingTransaction
         .getAccessList()
         .map(
             al -> {
-              int totalSize = OPTIONAL_ACCESS_LIST_MEMORY_SIZE;
-              totalSize += al.size() * ACCESS_LIST_ENTRY_BASE_MEMORY_SIZE;
+              int totalSize = OPTIONAL_ACCESS_LIST_SHALLOW_SIZE;
+              totalSize += al.size() * ACCESS_LIST_ENTRY_SHALLOW_SIZE;
               totalSize +=
                   al.stream().map(AccessListEntry::storageKeys).mapToInt(List::size).sum()
-                      * ACCESS_LIST_STORAGE_KEY_MEMORY_SIZE;
+                      * ACCESS_LIST_STORAGE_KEY_SIZE;
+              return totalSize;
+            })
+        .orElse(0);
+  }
+
+  private int computeCodeDelegationListMemorySize() {
+    return transaction
+        .getCodeDelegationList()
+        .map(
+            cd -> {
+              int totalSize = OPTIONAL_CODE_DELEGATION_LIST_SHALLOW_SIZE;
+              totalSize += cd.size() * CODE_DELEGATION_ENTRY_SIZE;
               return totalSize;
             })
         .orElse(0);
@@ -231,7 +267,7 @@ public abstract class PendingTransaction
 
   @Override
   public int hashCode() {
-    return 31 * (int) (sequence ^ (sequence >>> 32));
+    return 31 * Long.hashCode(sequence);
   }
 
   @Override
@@ -250,6 +286,8 @@ public abstract class PendingTransaction
         + isReceivedFromLocalSource()
         + ", hasPriority="
         + hasPriority()
+        + ", score="
+        + score
         + '}';
   }
 
@@ -262,6 +300,8 @@ public abstract class PendingTransaction
         + isReceivedFromLocalSource()
         + ", hasPriority="
         + hasPriority()
+        + ", score="
+        + score
         + ", "
         + transaction.toTraceLog()
         + "}";
@@ -277,13 +317,13 @@ public abstract class PendingTransaction
       this(transaction, System.currentTimeMillis());
     }
 
-    private Local(final long sequence, final Transaction transaction) {
-      super(transaction, System.currentTimeMillis(), sequence);
+    private Local(final long sequence, final byte score, final Transaction transaction) {
+      super(transaction, System.currentTimeMillis(), sequence, score);
     }
 
     @Override
     public PendingTransaction detachedCopy() {
-      return new Local(getSequence(), getTransaction().detachedCopy());
+      return new Local(getSequence(), getScore(), getTransaction().detachedCopy());
     }
 
     @Override
@@ -305,13 +345,13 @@ public abstract class PendingTransaction
         super(transaction, addedAt);
       }
 
-      public Priority(final long sequence, final Transaction transaction) {
-        super(sequence, transaction);
+      public Priority(final long sequence, final byte score, final Transaction transaction) {
+        super(sequence, score, transaction);
       }
 
       @Override
       public PendingTransaction detachedCopy() {
-        return new Priority(getSequence(), getTransaction().detachedCopy());
+        return new Priority(getSequence(), getScore(), getTransaction().detachedCopy());
       }
 
       @Override
@@ -331,13 +371,13 @@ public abstract class PendingTransaction
       this(transaction, System.currentTimeMillis());
     }
 
-    private Remote(final long sequence, final Transaction transaction) {
-      super(transaction, System.currentTimeMillis(), sequence);
+    private Remote(final long sequence, final byte score, final Transaction transaction) {
+      super(transaction, System.currentTimeMillis(), sequence, score);
     }
 
     @Override
     public PendingTransaction detachedCopy() {
-      return new Remote(getSequence(), getTransaction().detachedCopy());
+      return new Remote(getSequence(), getScore(), getTransaction().detachedCopy());
     }
 
     @Override
@@ -359,13 +399,13 @@ public abstract class PendingTransaction
         super(transaction, addedAt);
       }
 
-      public Priority(final long sequence, final Transaction transaction) {
-        super(sequence, transaction);
+      public Priority(final long sequence, final byte score, final Transaction transaction) {
+        super(sequence, score, transaction);
       }
 
       @Override
       public PendingTransaction detachedCopy() {
-        return new Priority(getSequence(), getTransaction().detachedCopy());
+        return new Priority(getSequence(), getScore(), getTransaction().detachedCopy());
       }
 
       @Override
@@ -373,5 +413,30 @@ public abstract class PendingTransaction
         return true;
       }
     }
+  }
+
+  /**
+   * The memory size of an object is calculated using the PendingTransactionEstimatedMemorySizeTest
+   * look there for the details of the calculation and to adapt the code when any of the related
+   * class changes its structure.
+   */
+  public interface MemorySize {
+    int FRONTIER_AND_ACCESS_LIST_SHALLOW_SIZE = 904;
+    int EIP1559_AND_EIP4844_SHALLOW_SIZE = 1016;
+    int OPTIONAL_TO_SIZE = 112;
+    int OPTIONAL_CHAIN_ID_SIZE = 80;
+    int PAYLOAD_SHALLOW_SIZE = 32;
+    int ACCESS_LIST_STORAGE_KEY_SIZE = 32;
+    int ACCESS_LIST_ENTRY_SHALLOW_SIZE = 248;
+    int OPTIONAL_ACCESS_LIST_SHALLOW_SIZE = 40;
+    int OPTIONAL_CODE_DELEGATION_LIST_SHALLOW_SIZE = 40;
+    int CODE_DELEGATION_ENTRY_SIZE = 472;
+    int VERSIONED_HASH_SIZE = 96;
+    int LIST_SHALLOW_SIZE = 48;
+    int OPTIONAL_SHALLOW_SIZE = 16;
+    int KZG_COMMITMENT_OR_PROOF_SIZE = 112;
+    int BLOB_SIZE = 131136;
+    int BLOBS_WITH_COMMITMENTS_SIZE = 40;
+    int PENDING_TRANSACTION_SHALLOW_SIZE = 40;
   }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright Hyperledger Besu Contributors.
+ * Copyright contributors to Hyperledger Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -14,19 +14,23 @@
  */
 package org.hyperledger.besu.ethereum.eth.transactions;
 
+import org.hyperledger.besu.datatypes.TransactionType;
+import org.hyperledger.besu.ethereum.eth.transactions.layered.AddReason;
 import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
 import org.hyperledger.besu.metrics.BesuMetricCategory;
 import org.hyperledger.besu.metrics.ReplaceableDoubleSupplier;
 import org.hyperledger.besu.metrics.RunnableCounter;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.metrics.Counter;
-import org.hyperledger.besu.plugin.services.metrics.LabelledGauge;
 import org.hyperledger.besu.plugin.services.metrics.LabelledMetric;
+import org.hyperledger.besu.plugin.services.metrics.LabelledSuppliedMetric;
 
 import java.util.HashMap;
 import java.util.Map;
 import java.util.function.DoubleSupplier;
+import java.util.function.IntSupplier;
 
+import org.apache.commons.lang3.tuple.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -35,20 +39,25 @@ public class TransactionPoolMetrics {
   public static final String ADDED_COUNTER_NAME = "added_total";
   public static final String REMOVED_COUNTER_NAME = "removed_total";
   public static final String REJECTED_COUNTER_NAME = "rejected_total";
+  public static final String PENALIZED_COUNTER_NAME = "penalized_total";
   public static final String EXPIRED_MESSAGES_COUNTER_NAME = "messages_expired_total";
   private static final int SKIPPED_MESSAGES_LOGGING_THRESHOLD = 1000;
   private final MetricsSystem metricsSystem;
   private final LabelledMetric<Counter> addedCounter;
   private final LabelledMetric<Counter> removedCounter;
   private final LabelledMetric<Counter> rejectedCounter;
-  private final LabelledGauge spaceUsed;
-  private final LabelledGauge transactionCount;
-  private final LabelledGauge uniqueSenderCount;
+  private final LabelledMetric<Counter> penalizedCounter;
+  private final LabelledSuppliedMetric spaceUsed;
+  private final LabelledSuppliedMetric transactionCount;
+  private final LabelledSuppliedMetric transactionCountByType;
+  private final LabelledSuppliedMetric uniqueSenderCount;
   private final LabelledMetric<Counter> expiredMessagesCounter;
   private final Map<String, RunnableCounter> expiredMessagesRunnableCounters = new HashMap<>();
   private final LabelledMetric<Counter> alreadySeenTransactionsCounter;
   private final Map<String, ReplaceableDoubleSupplier> spaceUsedSuppliers = new HashMap<>();
   private final Map<String, ReplaceableDoubleSupplier> transactionCountSuppliers = new HashMap<>();
+  private final Map<Pair<String, TransactionType>, ReplaceableDoubleSupplier>
+      transactionCountByTypeSuppliers = new HashMap<>();
   private final Map<String, ReplaceableDoubleSupplier> uniqueSendersSuppliers = new HashMap<>();
 
   public TransactionPoolMetrics(final MetricsSystem metricsSystem) {
@@ -61,6 +70,7 @@ public class TransactionPoolMetrics {
             "Count of transactions added to the transaction pool",
             "source",
             "priority",
+            "reason",
             "layer");
 
     removedCounter =
@@ -83,22 +93,39 @@ public class TransactionPoolMetrics {
             "reason",
             "layer");
 
+    penalizedCounter =
+        metricsSystem.createLabelledCounter(
+            BesuMetricCategory.TRANSACTION_POOL,
+            PENALIZED_COUNTER_NAME,
+            "Count of penalized transactions in the transaction pool",
+            "source",
+            "priority",
+            "layer");
+
     spaceUsed =
-        metricsSystem.createLabelledGauge(
+        metricsSystem.createLabelledSuppliedGauge(
             BesuMetricCategory.TRANSACTION_POOL,
             "space_used",
             "The amount of space used by the transactions in the layer",
             "layer");
 
     transactionCount =
-        metricsSystem.createLabelledGauge(
+        metricsSystem.createLabelledSuppliedGauge(
             BesuMetricCategory.TRANSACTION_POOL,
             "number_of_transactions",
             "The number of transactions currently present in the layer",
             "layer");
 
+    transactionCountByType =
+        metricsSystem.createLabelledSuppliedGauge(
+            BesuMetricCategory.TRANSACTION_POOL,
+            "number_of_transactions_by_type",
+            "The number of transactions, of a specified type, currently present in the layer",
+            "layer",
+            "type");
+
     uniqueSenderCount =
-        metricsSystem.createLabelledGauge(
+        metricsSystem.createLabelledSuppliedGauge(
             BesuMetricCategory.TRANSACTION_POOL,
             "unique_senders",
             "The number of senders with at least one transaction currently present in the layer",
@@ -130,6 +157,20 @@ public class TransactionPoolMetrics {
           if (existingSupplier == null) {
             final var newSupplier = new ReplaceableDoubleSupplier(spaceUsedSupplier);
             spaceUsed.labels(newSupplier, layer);
+            return newSupplier;
+          }
+          return existingSupplier.replaceDoubleSupplier(spaceUsedSupplier);
+        });
+  }
+
+  public void initTransactionCountByType(
+      final DoubleSupplier spaceUsedSupplier, final String layer, final TransactionType type) {
+    transactionCountByTypeSuppliers.compute(
+        Pair.of(layer, type),
+        (unused, existingSupplier) -> {
+          if (existingSupplier == null) {
+            final var newSupplier = new ReplaceableDoubleSupplier(spaceUsedSupplier);
+            transactionCountByType.labels(newSupplier, layer, type.name());
             return newSupplier;
           }
           return existingSupplier.replaceDoubleSupplier(spaceUsedSupplier);
@@ -177,11 +218,13 @@ public class TransactionPoolMetrics {
             SKIPPED_MESSAGES_LOGGING_THRESHOLD));
   }
 
-  public void incrementAdded(final PendingTransaction pendingTransaction, final String layer) {
+  public void incrementAdded(
+      final PendingTransaction pendingTransaction, final AddReason addReason, final String layer) {
     addedCounter
         .labels(
             location(pendingTransaction.isReceivedFromLocalSource()),
             priority(pendingTransaction.hasPriority()),
+            addReason.label(),
             layer)
         .inc();
   }
@@ -219,6 +262,15 @@ public class TransactionPoolMetrics {
         .inc();
   }
 
+  public void incrementPenalized(final PendingTransaction pendingTransaction, final String layer) {
+    penalizedCounter
+        .labels(
+            location(pendingTransaction.isReceivedFromLocalSource()),
+            priority(pendingTransaction.hasPriority()),
+            layer)
+        .inc();
+  }
+
   public void incrementExpiredMessages(final String message) {
     expiredMessagesCounter.labels(message).inc();
   }
@@ -233,5 +285,21 @@ public class TransactionPoolMetrics {
 
   private String priority(final boolean hasPriority) {
     return hasPriority ? "yes" : "no";
+  }
+
+  public void createBlobCacheSizeMetric(final IntSupplier sizeSupplier) {
+    metricsSystem.createIntegerGauge(
+        BesuMetricCategory.TRANSACTION_POOL,
+        "blob_cache_size",
+        "Current size of the blob cache",
+        sizeSupplier);
+  }
+
+  public void createBlobMapSizeMetric(final IntSupplier sizeSupplier) {
+    metricsSystem.createIntegerGauge(
+        BesuMetricCategory.TRANSACTION_POOL,
+        "blob_map_size",
+        "Current size of the blob map",
+        sizeSupplier);
   }
 }

@@ -17,7 +17,7 @@ package org.hyperledger.besu.consensus.clique;
 import static org.hyperledger.besu.ethereum.mainnet.AbstractGasLimitSpecification.DEFAULT_MAX_GAS_LIMIT;
 import static org.hyperledger.besu.ethereum.mainnet.AbstractGasLimitSpecification.DEFAULT_MIN_GAS_LIMIT;
 
-import org.hyperledger.besu.config.MergeConfigOptions;
+import org.hyperledger.besu.config.MergeConfiguration;
 import org.hyperledger.besu.consensus.clique.headervalidationrules.CliqueDifficultyValidationRule;
 import org.hyperledger.besu.consensus.clique.headervalidationrules.CliqueExtraDataValidationRule;
 import org.hyperledger.besu.consensus.clique.headervalidationrules.CliqueNoEmptyBlockValidationRule;
@@ -44,6 +44,8 @@ import com.google.common.annotations.VisibleForTesting;
 
 /** The Block header validation ruleset factory. */
 public class BlockHeaderValidationRulesetFactory {
+  /** Default constructor. */
+  private BlockHeaderValidationRulesetFactory() {}
 
   /**
    * Creates a set of rules which when executed will determine if a given block header is valid with
@@ -67,7 +69,7 @@ public class BlockHeaderValidationRulesetFactory {
         createEmptyBlocks,
         epochManager,
         baseFeeMarket,
-        MergeConfigOptions.isMergeEnabled());
+        MergeConfiguration.isMergeEnabled());
   }
 
   /**

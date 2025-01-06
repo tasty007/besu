@@ -1,5 +1,5 @@
 /*
- * Copyright contributors to Hyperledger Besu
+ * Copyright contributors to Hyperledger Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -116,7 +116,7 @@ public class CompleteTaskStepTest {
 
   @Test
   public void shouldMarkSnapsyncTaskCompleteWhenData() {
-    final List<Task<SnapDataRequest>> requests = TaskGenerator.createAccountRequest(true);
+    final List<Task<SnapDataRequest>> requests = TaskGenerator.createAccountRequest(true, false);
     requests.stream()
         .map(StubTask.class::cast)
         .forEach(
@@ -132,7 +132,7 @@ public class CompleteTaskStepTest {
 
   @Test
   public void shouldMarkSnapsyncTaskAsFailedWhenNoData() {
-    final List<Task<SnapDataRequest>> requests = TaskGenerator.createAccountRequest(false);
+    final List<Task<SnapDataRequest>> requests = TaskGenerator.createAccountRequest(false, false);
     requests.stream()
         .map(StubTask.class::cast)
         .forEach(

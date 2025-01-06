@@ -16,15 +16,13 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ImmutableTransactionTraceParams;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
@@ -35,6 +33,7 @@ import org.hyperledger.besu.ethereum.debug.TraceFrame;
 import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
+import org.hyperledger.besu.ethereum.mainnet.blockhash.BlockHashProcessor;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.vm.DebugOperationTracer;
@@ -69,6 +68,7 @@ public class TransactionTracerTest {
   @TempDir private Path traceDir;
 
   @Mock private ProtocolSchedule protocolSchedule;
+  @Mock private ProtocolContext protocolContext;
   @Mock private Blockchain blockchain;
 
   @Mock private BlockHeader blockHeader;
@@ -85,12 +85,14 @@ public class TransactionTracerTest {
 
   @Mock private ProtocolSpec protocolSpec;
   @Mock private GasCalculator gasCalculator;
+  @Mock private BlockHashProcessor blockHashProcessor;
 
   @Mock private Tracer.TraceableState mutableWorldState;
 
   @Mock private MainnetTransactionProcessor transactionProcessor;
 
   private TransactionTracer transactionTracer;
+  private final BadBlockManager badBlockManager = new BadBlockManager();
 
   private final Hash transactionHash =
       Hash.fromHexString("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
@@ -107,7 +109,8 @@ public class TransactionTracerTest {
 
   @BeforeEach
   public void setUp() throws Exception {
-    transactionTracer = new TransactionTracer(new BlockReplay(protocolSchedule, blockchain));
+    transactionTracer =
+        new TransactionTracer(new BlockReplay(protocolSchedule, protocolContext, blockchain));
     when(transaction.getHash()).thenReturn(transactionHash);
     when(otherTransaction.getHash()).thenReturn(otherTransactionHash);
     when(blockHeader.getNumber()).thenReturn(12L);
@@ -118,9 +121,9 @@ public class TransactionTracerTest {
     when(protocolSpec.getMiningBeneficiaryCalculator()).thenReturn(BlockHeader::getCoinbase);
     when(protocolSpec.getFeeMarket()).thenReturn(FeeMarket.london(0L));
     when(blockchain.getChainHeadHeader()).thenReturn(blockHeader);
-    when(protocolSpec.getBadBlocksManager()).thenReturn(new BadBlockManager());
     when(protocolSpec.getGasCalculator()).thenReturn(gasCalculator);
-    lenient().when(gasCalculator.computeExcessBlobGas(anyLong(), anyInt())).thenReturn(0L);
+    when(protocolSpec.getBlockHashProcessor()).thenReturn(blockHashProcessor);
+    when(protocolContext.getBadBlockManager()).thenReturn(badBlockManager);
   }
 
   @Test
@@ -176,7 +179,6 @@ public class TransactionTracerTest {
     final WorldUpdater updater = mock(WorldUpdater.class);
     when(mutableWorldState.updater()).thenReturn(updater);
     when(transactionProcessor.processTransaction(
-            eq(blockchain),
             eq(updater),
             eq(blockHeader),
             eq(transaction),
@@ -265,7 +267,6 @@ public class TransactionTracerTest {
     final WorldUpdater stackedUpdater = mock(StackedUpdater.class);
     when(updater.updater()).thenReturn(stackedUpdater);
     when(transactionProcessor.processTransaction(
-            eq(blockchain),
             eq(stackedUpdater),
             eq(blockHeader),
             eq(transaction),

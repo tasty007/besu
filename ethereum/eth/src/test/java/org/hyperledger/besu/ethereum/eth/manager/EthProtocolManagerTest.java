@@ -1,5 +1,5 @@
 /*
- * Copyright contributors to Hyperledger Besu
+ * Copyright contributors to Hyperledger Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -36,6 +36,7 @@ import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockchainSetupUtil;
 import org.hyperledger.besu.ethereum.core.Difficulty;
+import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.ProtocolScheduleFixture;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
@@ -63,6 +64,7 @@ import org.hyperledger.besu.ethereum.eth.transactions.BlobCache;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolFactory;
+import org.hyperledger.besu.ethereum.forkid.ForkId;
 import org.hyperledger.besu.ethereum.forkid.ForkIdManager;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnection;
@@ -71,10 +73,11 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.wire.DefaultMessage;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.RawMessage;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.messages.DisconnectMessage.DisconnectReason;
-import org.hyperledger.besu.ethereum.worldstate.DataStorageFormat;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
+import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
+import org.hyperledger.besu.testutil.DeterministicEthScheduler;
 import org.hyperledger.besu.testutil.TestClock;
 
 import java.math.BigInteger;
@@ -92,6 +95,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
+import java.util.zip.CRC32;
 
 import com.google.common.collect.Lists;
 import org.apache.tuweni.bytes.Bytes;
@@ -129,13 +133,14 @@ public final class EthProtocolManagerTest {
   @Test
   public void handleMalformedRequestIdMessage() {
     try (final EthProtocolManager ethManager =
-        EthProtocolManagerTestUtil.create(
-            protocolSchedule,
-            blockchain,
-            () -> false,
-            protocolContext.getWorldStateArchive(),
-            transactionPool,
-            EthProtocolConfiguration.defaultConfig())) {
+        EthProtocolManagerTestBuilder.builder()
+            .setProtocolSchedule(protocolSchedule)
+            .setBlockchain(blockchain)
+            .setEthScheduler(new DeterministicEthScheduler(() -> false))
+            .setWorldStateArchive(protocolContext.getWorldStateArchive())
+            .setTransactionPool(transactionPool)
+            .setEthereumWireProtocolConfiguration(EthProtocolConfiguration.defaultConfig())
+            .build()) {
       // this is a non-request id message, but we'll be processing it with eth66, make sure we
       // disconnect the peer gracefully
       final MessageData messageData = GetBlockHeadersMessage.create(1, 1, 0, false);
@@ -148,13 +153,14 @@ public final class EthProtocolManagerTest {
   @Test
   public void disconnectOnUnsolicitedMessage() {
     try (final EthProtocolManager ethManager =
-        EthProtocolManagerTestUtil.create(
-            protocolSchedule,
-            blockchain,
-            () -> false,
-            protocolContext.getWorldStateArchive(),
-            transactionPool,
-            EthProtocolConfiguration.defaultConfig())) {
+        EthProtocolManagerTestBuilder.builder()
+            .setProtocolSchedule(protocolSchedule)
+            .setBlockchain(blockchain)
+            .setEthScheduler(new DeterministicEthScheduler(() -> false))
+            .setWorldStateArchive(protocolContext.getWorldStateArchive())
+            .setTransactionPool(transactionPool)
+            .setEthereumWireProtocolConfiguration(EthProtocolConfiguration.defaultConfig())
+            .build()) {
       final MessageData messageData =
           BlockHeadersMessage.create(Collections.singletonList(blockchain.getBlockHeader(1).get()));
       final MockPeerConnection peer = setupPeer(ethManager, (cap, msg, conn) -> {});
@@ -166,13 +172,14 @@ public final class EthProtocolManagerTest {
   @Test
   public void disconnectOnFailureToSendStatusMessage() {
     try (final EthProtocolManager ethManager =
-        EthProtocolManagerTestUtil.create(
-            protocolSchedule,
-            blockchain,
-            () -> false,
-            protocolContext.getWorldStateArchive(),
-            transactionPool,
-            EthProtocolConfiguration.defaultConfig())) {
+        EthProtocolManagerTestBuilder.builder()
+            .setProtocolSchedule(protocolSchedule)
+            .setBlockchain(blockchain)
+            .setEthScheduler(new DeterministicEthScheduler(() -> false))
+            .setWorldStateArchive(protocolContext.getWorldStateArchive())
+            .setTransactionPool(transactionPool)
+            .setEthereumWireProtocolConfiguration(EthProtocolConfiguration.defaultConfig())
+            .build()) {
       final MessageData messageData =
           BlockHeadersMessage.create(Collections.singletonList(blockchain.getBlockHeader(1).get()));
       final MockPeerConnection peer =
@@ -185,13 +192,14 @@ public final class EthProtocolManagerTest {
   @Test
   public void disconnectOnWrongChainId() {
     try (final EthProtocolManager ethManager =
-        EthProtocolManagerTestUtil.create(
-            protocolSchedule,
-            blockchain,
-            () -> false,
-            protocolContext.getWorldStateArchive(),
-            transactionPool,
-            EthProtocolConfiguration.defaultConfig())) {
+        EthProtocolManagerTestBuilder.builder()
+            .setProtocolSchedule(protocolSchedule)
+            .setBlockchain(blockchain)
+            .setEthScheduler(new DeterministicEthScheduler(() -> false))
+            .setWorldStateArchive(protocolContext.getWorldStateArchive())
+            .setTransactionPool(transactionPool)
+            .setEthereumWireProtocolConfiguration(EthProtocolConfiguration.defaultConfig())
+            .build()) {
       final MessageData messageData =
           BlockHeadersMessage.create(Collections.singletonList(blockchain.getBlockHeader(1).get()));
       final MockPeerConnection peer =
@@ -216,13 +224,14 @@ public final class EthProtocolManagerTest {
   public void disconnectNewPoWPeers() {
     final MergePeerFilter mergePeerFilter = new MergePeerFilter();
     try (final EthProtocolManager ethManager =
-        EthProtocolManagerTestUtil.create(
-            protocolSchedule,
-            blockchain,
-            protocolContext.getWorldStateArchive(),
-            transactionPool,
-            EthProtocolConfiguration.defaultConfig(),
-            Optional.of(mergePeerFilter))) {
+        EthProtocolManagerTestBuilder.builder()
+            .setProtocolSchedule(protocolSchedule)
+            .setBlockchain(blockchain)
+            .setWorldStateArchive(protocolContext.getWorldStateArchive())
+            .setTransactionPool(transactionPool)
+            .setEthereumWireProtocolConfiguration(EthProtocolConfiguration.defaultConfig())
+            .setMergePeerFilter(Optional.of(mergePeerFilter))
+            .build()) {
 
       final MockPeerConnection workPeer = setupPeer(ethManager, (cap, msg, conn) -> {});
       final MockPeerConnection stakePeer = setupPeer(ethManager, (cap, msg, conn) -> {});
@@ -256,8 +265,7 @@ public final class EthProtocolManagerTest {
       assertThat(workPeer.isDisconnected()).isTrue();
       assertThat(workPeer.getDisconnectReason()).isPresent();
       assertThat(workPeer.getDisconnectReason())
-          .get()
-          .isEqualTo(DisconnectReason.SUBPROTOCOL_TRIGGERED);
+          .hasValue(DisconnectReason.SUBPROTOCOL_TRIGGERED_POW_DIFFICULTY);
       assertThat(stakePeer.isDisconnected()).isFalse();
     }
   }
@@ -265,13 +273,14 @@ public final class EthProtocolManagerTest {
   @Test
   public void doNotDisconnectOnLargeMessageWithinLimits() {
     try (final EthProtocolManager ethManager =
-        EthProtocolManagerTestUtil.create(
-            protocolSchedule,
-            blockchain,
-            () -> false,
-            protocolContext.getWorldStateArchive(),
-            transactionPool,
-            EthProtocolConfiguration.defaultConfig())) {
+        EthProtocolManagerTestBuilder.builder()
+            .setProtocolSchedule(protocolSchedule)
+            .setBlockchain(blockchain)
+            .setEthScheduler(new DeterministicEthScheduler(() -> false))
+            .setWorldStateArchive(protocolContext.getWorldStateArchive())
+            .setTransactionPool(transactionPool)
+            .setEthereumWireProtocolConfiguration(EthProtocolConfiguration.defaultConfig())
+            .build()) {
       final MessageData messageData = mock(MessageData.class);
       when(messageData.getSize()).thenReturn(EthProtocolConfiguration.DEFAULT_MAX_MESSAGE_SIZE);
       when(messageData.getCode()).thenReturn(EthPV62.TRANSACTIONS);
@@ -285,13 +294,14 @@ public final class EthProtocolManagerTest {
   @Test
   public void disconnectOnWrongGenesisHash() {
     try (final EthProtocolManager ethManager =
-        EthProtocolManagerTestUtil.create(
-            protocolSchedule,
-            blockchain,
-            () -> false,
-            protocolContext.getWorldStateArchive(),
-            transactionPool,
-            EthProtocolConfiguration.defaultConfig())) {
+        EthProtocolManagerTestBuilder.builder()
+            .setProtocolSchedule(protocolSchedule)
+            .setBlockchain(blockchain)
+            .setEthScheduler(new DeterministicEthScheduler(() -> false))
+            .setWorldStateArchive(protocolContext.getWorldStateArchive())
+            .setTransactionPool(transactionPool)
+            .setEthereumWireProtocolConfiguration(EthProtocolConfiguration.defaultConfig())
+            .build()) {
       final MessageData messageData =
           BlockHeadersMessage.create(Collections.singletonList(blockchain.getBlockHeader(1).get()));
       final MockPeerConnection peer =
@@ -315,13 +325,14 @@ public final class EthProtocolManagerTest {
   @Test
   public void doNotDisconnectOnValidMessage() {
     try (final EthProtocolManager ethManager =
-        EthProtocolManagerTestUtil.create(
-            protocolSchedule,
-            blockchain,
-            () -> false,
-            protocolContext.getWorldStateArchive(),
-            transactionPool,
-            EthProtocolConfiguration.defaultConfig())) {
+        EthProtocolManagerTestBuilder.builder()
+            .setProtocolSchedule(protocolSchedule)
+            .setBlockchain(blockchain)
+            .setEthScheduler(new DeterministicEthScheduler(() -> false))
+            .setWorldStateArchive(protocolContext.getWorldStateArchive())
+            .setTransactionPool(transactionPool)
+            .setEthereumWireProtocolConfiguration(EthProtocolConfiguration.defaultConfig())
+            .build()) {
       final MessageData messageData =
           GetBlockBodiesMessage.create(Collections.singletonList(gen.hash()));
       final MockPeerConnection peer = setupPeer(ethManager, (cap, msg, conn) -> {});
@@ -337,13 +348,14 @@ public final class EthProtocolManagerTest {
   public void respondToGetHeaders() throws ExecutionException, InterruptedException {
     final CompletableFuture<Void> done = new CompletableFuture<>();
     try (final EthProtocolManager ethManager =
-        EthProtocolManagerTestUtil.create(
-            protocolSchedule,
-            blockchain,
-            () -> false,
-            protocolContext.getWorldStateArchive(),
-            transactionPool,
-            EthProtocolConfiguration.defaultConfig())) {
+        EthProtocolManagerTestBuilder.builder()
+            .setProtocolSchedule(protocolSchedule)
+            .setBlockchain(blockchain)
+            .setEthScheduler(new DeterministicEthScheduler(() -> false))
+            .setWorldStateArchive(protocolContext.getWorldStateArchive())
+            .setTransactionPool(transactionPool)
+            .setEthereumWireProtocolConfiguration(EthProtocolConfiguration.defaultConfig())
+            .build()) {
       final long startBlock = 5L;
       final int blockCount = 5;
       final MessageData messageData =
@@ -377,13 +389,14 @@ public final class EthProtocolManagerTest {
     final EthProtocolConfiguration config =
         EthProtocolConfiguration.builder().maxGetBlockHeaders(limit).build();
     try (final EthProtocolManager ethManager =
-        EthProtocolManagerTestUtil.create(
-            protocolSchedule,
-            blockchain,
-            () -> false,
-            protocolContext.getWorldStateArchive(),
-            transactionPool,
-            config)) {
+        EthProtocolManagerTestBuilder.builder()
+            .setProtocolSchedule(protocolSchedule)
+            .setBlockchain(blockchain)
+            .setEthScheduler(new DeterministicEthScheduler(() -> false))
+            .setWorldStateArchive(protocolContext.getWorldStateArchive())
+            .setTransactionPool(transactionPool)
+            .setEthereumWireProtocolConfiguration(config)
+            .build()) {
       final long startBlock = 5L;
       final int blockCount = 10;
       final MessageData messageData =
@@ -414,13 +427,14 @@ public final class EthProtocolManagerTest {
   public void respondToGetHeadersReversed() throws ExecutionException, InterruptedException {
     final CompletableFuture<Void> done = new CompletableFuture<>();
     try (final EthProtocolManager ethManager =
-        EthProtocolManagerTestUtil.create(
-            protocolSchedule,
-            blockchain,
-            () -> false,
-            protocolContext.getWorldStateArchive(),
-            transactionPool,
-            EthProtocolConfiguration.defaultConfig())) {
+        EthProtocolManagerTestBuilder.builder()
+            .setProtocolSchedule(protocolSchedule)
+            .setBlockchain(blockchain)
+            .setEthScheduler(new DeterministicEthScheduler(() -> false))
+            .setWorldStateArchive(protocolContext.getWorldStateArchive())
+            .setTransactionPool(transactionPool)
+            .setEthereumWireProtocolConfiguration(EthProtocolConfiguration.defaultConfig())
+            .build()) {
 
       final long endBlock = 10L;
       final int blockCount = 5;
@@ -451,13 +465,14 @@ public final class EthProtocolManagerTest {
   public void respondToGetHeadersWithSkip() throws ExecutionException, InterruptedException {
     final CompletableFuture<Void> done = new CompletableFuture<>();
     try (final EthProtocolManager ethManager =
-        EthProtocolManagerTestUtil.create(
-            protocolSchedule,
-            blockchain,
-            () -> false,
-            protocolContext.getWorldStateArchive(),
-            transactionPool,
-            EthProtocolConfiguration.defaultConfig())) {
+        EthProtocolManagerTestBuilder.builder()
+            .setProtocolSchedule(protocolSchedule)
+            .setBlockchain(blockchain)
+            .setEthScheduler(new DeterministicEthScheduler(() -> false))
+            .setWorldStateArchive(protocolContext.getWorldStateArchive())
+            .setTransactionPool(transactionPool)
+            .setEthereumWireProtocolConfiguration(EthProtocolConfiguration.defaultConfig())
+            .build()) {
 
       final long startBlock = 5L;
       final int blockCount = 5;
@@ -491,13 +506,14 @@ public final class EthProtocolManagerTest {
       throws ExecutionException, InterruptedException {
     final CompletableFuture<Void> done = new CompletableFuture<>();
     try (final EthProtocolManager ethManager =
-        EthProtocolManagerTestUtil.create(
-            protocolSchedule,
-            blockchain,
-            () -> false,
-            protocolContext.getWorldStateArchive(),
-            transactionPool,
-            EthProtocolConfiguration.defaultConfig())) {
+        EthProtocolManagerTestBuilder.builder()
+            .setProtocolSchedule(protocolSchedule)
+            .setBlockchain(blockchain)
+            .setEthScheduler(new DeterministicEthScheduler(() -> false))
+            .setWorldStateArchive(protocolContext.getWorldStateArchive())
+            .setTransactionPool(transactionPool)
+            .setEthereumWireProtocolConfiguration(EthProtocolConfiguration.defaultConfig())
+            .build()) {
 
       final long endBlock = 10L;
       final int blockCount = 5;
@@ -528,7 +544,7 @@ public final class EthProtocolManagerTest {
 
   private MockPeerConnection setupPeer(
       final EthProtocolManager ethManager, final PeerSendHandler onSend) {
-    final MockPeerConnection peer = setupPeerWithoutStatusExchange(ethManager, onSend);
+    final MockPeerConnection peerConnection = setupPeerWithoutStatusExchange(ethManager, onSend);
     final StatusMessage statusMessage =
         StatusMessage.create(
             EthProtocolVersion.V63,
@@ -536,8 +552,11 @@ public final class EthProtocolManagerTest {
             blockchain.getChainHead().getTotalDifficulty(),
             blockchain.getChainHeadHash(),
             blockchain.getBlockHeader(BlockHeader.GENESIS_BLOCK_NUMBER).get().getHash());
-    ethManager.processMessage(EthProtocol.ETH63, new DefaultMessage(peer, statusMessage));
-    return peer;
+    ethManager.processMessage(EthProtocol.ETH63, new DefaultMessage(peerConnection, statusMessage));
+    final EthPeers ethPeers = ethManager.ethContext().getEthPeers();
+    final EthPeer ethPeer = ethPeers.peer(peerConnection);
+    ethPeers.addPeerToEthPeers(ethPeer);
+    return peerConnection;
   }
 
   private MockPeerConnection setupPeerWithoutStatusExchange(
@@ -552,13 +571,14 @@ public final class EthProtocolManagerTest {
   public void respondToGetHeadersPartial() throws ExecutionException, InterruptedException {
     final CompletableFuture<Void> done = new CompletableFuture<>();
     try (final EthProtocolManager ethManager =
-        EthProtocolManagerTestUtil.create(
-            protocolSchedule,
-            blockchain,
-            () -> false,
-            protocolContext.getWorldStateArchive(),
-            transactionPool,
-            EthProtocolConfiguration.defaultConfig())) {
+        EthProtocolManagerTestBuilder.builder()
+            .setProtocolSchedule(protocolSchedule)
+            .setBlockchain(blockchain)
+            .setEthScheduler(new DeterministicEthScheduler(() -> false))
+            .setWorldStateArchive(protocolContext.getWorldStateArchive())
+            .setTransactionPool(transactionPool)
+            .setEthereumWireProtocolConfiguration(EthProtocolConfiguration.defaultConfig())
+            .build()) {
 
       final long startBlock = blockchain.getChainHeadBlockNumber() - 1L;
       final int blockCount = 5;
@@ -590,13 +610,14 @@ public final class EthProtocolManagerTest {
   public void respondToGetHeadersEmpty() throws ExecutionException, InterruptedException {
     final CompletableFuture<Void> done = new CompletableFuture<>();
     try (final EthProtocolManager ethManager =
-        EthProtocolManagerTestUtil.create(
-            protocolSchedule,
-            blockchain,
-            () -> false,
-            protocolContext.getWorldStateArchive(),
-            transactionPool,
-            EthProtocolConfiguration.defaultConfig())) {
+        EthProtocolManagerTestBuilder.builder()
+            .setProtocolSchedule(protocolSchedule)
+            .setBlockchain(blockchain)
+            .setEthScheduler(new DeterministicEthScheduler(() -> false))
+            .setWorldStateArchive(protocolContext.getWorldStateArchive())
+            .setTransactionPool(transactionPool)
+            .setEthereumWireProtocolConfiguration(EthProtocolConfiguration.defaultConfig())
+            .build()) {
 
       final long startBlock = blockchain.getChainHeadBlockNumber() + 1;
       final int blockCount = 5;
@@ -625,13 +646,14 @@ public final class EthProtocolManagerTest {
   public void respondToGetBodies() throws ExecutionException, InterruptedException {
     final CompletableFuture<Void> done = new CompletableFuture<>();
     try (final EthProtocolManager ethManager =
-        EthProtocolManagerTestUtil.create(
-            protocolSchedule,
-            blockchain,
-            () -> false,
-            protocolContext.getWorldStateArchive(),
-            transactionPool,
-            EthProtocolConfiguration.defaultConfig())) {
+        EthProtocolManagerTestBuilder.builder()
+            .setProtocolSchedule(protocolSchedule)
+            .setBlockchain(blockchain)
+            .setEthScheduler(new DeterministicEthScheduler(() -> false))
+            .setWorldStateArchive(protocolContext.getWorldStateArchive())
+            .setTransactionPool(transactionPool)
+            .setEthereumWireProtocolConfiguration(EthProtocolConfiguration.defaultConfig())
+            .build()) {
 
       // Setup blocks query
       final long startBlock = blockchain.getChainHeadBlockNumber() - 5;
@@ -678,13 +700,14 @@ public final class EthProtocolManagerTest {
     final EthProtocolConfiguration config =
         EthProtocolConfiguration.builder().maxGetBlockBodies(limit).build();
     try (final EthProtocolManager ethManager =
-        EthProtocolManagerTestUtil.create(
-            protocolSchedule,
-            blockchain,
-            () -> false,
-            protocolContext.getWorldStateArchive(),
-            transactionPool,
-            config)) {
+        EthProtocolManagerTestBuilder.builder()
+            .setProtocolSchedule(protocolSchedule)
+            .setBlockchain(blockchain)
+            .setEthScheduler(new DeterministicEthScheduler(() -> false))
+            .setWorldStateArchive(protocolContext.getWorldStateArchive())
+            .setTransactionPool(transactionPool)
+            .setEthereumWireProtocolConfiguration(config)
+            .build()) {
       // Setup blocks query
       final int blockCount = 10;
       final long startBlock = blockchain.getChainHeadBlockNumber() - blockCount;
@@ -727,13 +750,14 @@ public final class EthProtocolManagerTest {
   public void respondToGetBodiesPartial() throws ExecutionException, InterruptedException {
     final CompletableFuture<Void> done = new CompletableFuture<>();
     try (final EthProtocolManager ethManager =
-        EthProtocolManagerTestUtil.create(
-            protocolSchedule,
-            blockchain,
-            () -> false,
-            protocolContext.getWorldStateArchive(),
-            transactionPool,
-            EthProtocolConfiguration.defaultConfig())) {
+        EthProtocolManagerTestBuilder.builder()
+            .setProtocolSchedule(protocolSchedule)
+            .setBlockchain(blockchain)
+            .setEthScheduler(new DeterministicEthScheduler(() -> false))
+            .setWorldStateArchive(protocolContext.getWorldStateArchive())
+            .setTransactionPool(transactionPool)
+            .setEthereumWireProtocolConfiguration(EthProtocolConfiguration.defaultConfig())
+            .build()) {
       // Setup blocks query
       final long expectedBlockNumber = blockchain.getChainHeadBlockNumber() - 1;
       final BlockHeader header = blockchain.getBlockHeader(expectedBlockNumber).get();
@@ -770,13 +794,14 @@ public final class EthProtocolManagerTest {
   public void respondToGetReceipts() throws ExecutionException, InterruptedException {
     final CompletableFuture<Void> done = new CompletableFuture<>();
     try (final EthProtocolManager ethManager =
-        EthProtocolManagerTestUtil.create(
-            protocolSchedule,
-            blockchain,
-            () -> false,
-            protocolContext.getWorldStateArchive(),
-            transactionPool,
-            EthProtocolConfiguration.defaultConfig())) {
+        EthProtocolManagerTestBuilder.builder()
+            .setProtocolSchedule(protocolSchedule)
+            .setBlockchain(blockchain)
+            .setEthScheduler(new DeterministicEthScheduler(() -> false))
+            .setWorldStateArchive(protocolContext.getWorldStateArchive())
+            .setTransactionPool(transactionPool)
+            .setEthereumWireProtocolConfiguration(EthProtocolConfiguration.defaultConfig())
+            .build()) {
       // Setup blocks query
       final long startBlock = blockchain.getChainHeadBlockNumber() - 5;
       final int blockCount = 2;
@@ -821,13 +846,14 @@ public final class EthProtocolManagerTest {
     final EthProtocolConfiguration config =
         EthProtocolConfiguration.builder().maxGetReceipts(limit).build();
     try (final EthProtocolManager ethManager =
-        EthProtocolManagerTestUtil.create(
-            protocolSchedule,
-            blockchain,
-            () -> false,
-            protocolContext.getWorldStateArchive(),
-            transactionPool,
-            config)) {
+        EthProtocolManagerTestBuilder.builder()
+            .setProtocolSchedule(protocolSchedule)
+            .setBlockchain(blockchain)
+            .setEthScheduler(new DeterministicEthScheduler(() -> false))
+            .setWorldStateArchive(protocolContext.getWorldStateArchive())
+            .setTransactionPool(transactionPool)
+            .setEthereumWireProtocolConfiguration(config)
+            .build()) {
       // Setup blocks query
       final int blockCount = 10;
       final long startBlock = blockchain.getChainHeadBlockNumber() - blockCount;
@@ -869,13 +895,14 @@ public final class EthProtocolManagerTest {
   public void respondToGetReceiptsPartial() throws ExecutionException, InterruptedException {
     final CompletableFuture<Void> done = new CompletableFuture<>();
     try (final EthProtocolManager ethManager =
-        EthProtocolManagerTestUtil.create(
-            protocolSchedule,
-            blockchain,
-            () -> false,
-            protocolContext.getWorldStateArchive(),
-            transactionPool,
-            EthProtocolConfiguration.defaultConfig())) {
+        EthProtocolManagerTestBuilder.builder()
+            .setProtocolSchedule(protocolSchedule)
+            .setBlockchain(blockchain)
+            .setEthScheduler(new DeterministicEthScheduler(() -> false))
+            .setWorldStateArchive(protocolContext.getWorldStateArchive())
+            .setTransactionPool(transactionPool)
+            .setEthereumWireProtocolConfiguration(EthProtocolConfiguration.defaultConfig())
+            .build()) {
       // Setup blocks query
       final long blockNumber = blockchain.getChainHeadBlockNumber() - 5;
       final BlockHeader header = blockchain.getBlockHeader(blockNumber).get();
@@ -914,13 +941,14 @@ public final class EthProtocolManagerTest {
     final WorldStateArchive worldStateArchive = protocolContext.getWorldStateArchive();
 
     try (final EthProtocolManager ethManager =
-        EthProtocolManagerTestUtil.create(
-            protocolSchedule,
-            blockchain,
-            () -> false,
-            protocolContext.getWorldStateArchive(),
-            transactionPool,
-            EthProtocolConfiguration.defaultConfig())) {
+        EthProtocolManagerTestBuilder.builder()
+            .setProtocolSchedule(protocolSchedule)
+            .setBlockchain(blockchain)
+            .setEthScheduler(new DeterministicEthScheduler(() -> false))
+            .setWorldStateArchive(protocolContext.getWorldStateArchive())
+            .setTransactionPool(transactionPool)
+            .setEthereumWireProtocolConfiguration(EthProtocolConfiguration.defaultConfig())
+            .build()) {
       // Setup node data query
 
       final List<Bytes> expectedResults = new ArrayList<>();
@@ -962,13 +990,14 @@ public final class EthProtocolManagerTest {
   @Test
   public void newBlockMinedSendsNewBlockMessageToAllPeers() {
     try (final EthProtocolManager ethManager =
-        EthProtocolManagerTestUtil.create(
-            protocolSchedule,
-            blockchain,
-            () -> false,
-            protocolContext.getWorldStateArchive(),
-            transactionPool,
-            EthProtocolConfiguration.defaultConfig())) {
+        EthProtocolManagerTestBuilder.builder()
+            .setProtocolSchedule(protocolSchedule)
+            .setBlockchain(blockchain)
+            .setEthScheduler(new DeterministicEthScheduler(() -> false))
+            .setWorldStateArchive(protocolContext.getWorldStateArchive())
+            .setTransactionPool(transactionPool)
+            .setEthereumWireProtocolConfiguration(EthProtocolConfiguration.defaultConfig())
+            .build()) {
       // Define handler to validate response
       final PeerSendHandler onSend = mock(PeerSendHandler.class);
       final List<PeerConnection> peers = Lists.newArrayList();
@@ -1033,13 +1062,14 @@ public final class EthProtocolManagerTest {
 
     final CompletableFuture<Void> done = new CompletableFuture<>();
     try (final EthProtocolManager ethManager =
-        EthProtocolManagerTestUtil.create(
-            protocolSchedule,
-            blockchain,
-            () -> false,
-            protocolContext.getWorldStateArchive(),
-            transactionPool,
-            EthProtocolConfiguration.defaultConfig())) {
+        EthProtocolManagerTestBuilder.builder()
+            .setProtocolSchedule(protocolSchedule)
+            .setBlockchain(blockchain)
+            .setEthScheduler(new DeterministicEthScheduler(() -> false))
+            .setWorldStateArchive(protocolContext.getWorldStateArchive())
+            .setTransactionPool(transactionPool)
+            .setEthereumWireProtocolConfiguration(EthProtocolConfiguration.defaultConfig())
+            .build()) {
 
       final long startBlock = 1L;
       final int requestedBlockCount = 13;
@@ -1100,13 +1130,14 @@ public final class EthProtocolManagerTest {
     final TransactionsMessage transactionMessage = TransactionsMessage.readFrom(raw);
 
     try (final EthProtocolManager ethManager =
-        EthProtocolManagerTestUtil.create(
-            protocolSchedule,
-            blockchain,
-            ethScheduler,
-            protocolContext.getWorldStateArchive(),
-            transactionPool,
-            EthProtocolConfiguration.defaultConfig())) {
+        EthProtocolManagerTestBuilder.builder()
+            .setProtocolSchedule(protocolSchedule)
+            .setBlockchain(blockchain)
+            .setEthScheduler(ethScheduler)
+            .setWorldStateArchive(protocolContext.getWorldStateArchive())
+            .setTransactionPool(transactionPool)
+            .setEthereumWireProtocolConfiguration(EthProtocolConfiguration.defaultConfig())
+            .build()) {
       // Create a transaction pool.  This has a side effect of registering a listener for the
       // transactions message.
       TransactionPoolFactory.createTransactionPool(
@@ -1117,8 +1148,8 @@ public final class EthProtocolManagerTest {
               metricsSystem,
               new SyncState(blockchain, ethManager.ethContext().getEthPeers()),
               TransactionPoolConfiguration.DEFAULT,
-              null,
-              new BlobCache())
+              new BlobCache(),
+              MiningConfiguration.newDefault())
           .setEnabled();
 
       // Send just a transaction message.
@@ -1133,28 +1164,36 @@ public final class EthProtocolManagerTest {
   }
 
   @Test
-  public void forkIdForChainHeadMayBeNull() {
+  public void forkIdForChainHeadLegacyNoForksNotEmpty() {
     final EthScheduler ethScheduler = mock(EthScheduler.class);
     try (final EthProtocolManager ethManager =
-        EthProtocolManagerTestUtil.create(
-            protocolSchedule,
-            blockchain,
-            ethScheduler,
-            protocolContext.getWorldStateArchive(),
-            transactionPool,
-            EthProtocolConfiguration.defaultConfig(),
-            new ForkIdManager(
-                blockchain, Collections.emptyList(), Collections.emptyList(), true))) {
+        EthProtocolManagerTestBuilder.builder()
+            .setProtocolSchedule(protocolSchedule)
+            .setBlockchain(blockchain)
+            .setEthScheduler(ethScheduler)
+            .setWorldStateArchive(protocolContext.getWorldStateArchive())
+            .setTransactionPool(transactionPool)
+            .setEthereumWireProtocolConfiguration(EthProtocolConfiguration.defaultConfig())
+            .setForkIdManager(
+                new ForkIdManager(
+                    blockchain, Collections.emptyList(), Collections.emptyList(), true))
+            .build()) {
 
-      assertThat(ethManager.getForkIdAsBytesList()).isEmpty();
+      assertThat(ethManager.getForkIdAsBytesList()).isNotEmpty();
+      final CRC32 genesisHashCRC = new CRC32();
+      genesisHashCRC.update(blockchain.getGenesisBlock().getHash().toArray());
+      assertThat(ethManager.getForkIdAsBytesList())
+          .isEqualTo(
+              new ForkId(Bytes.ofUnsignedInt(genesisHashCRC.getValue()), 0L)
+                  .getForkIdAsBytesList());
     }
   }
 
   @Test
   public void shouldUseRightCapabilityDependingOnSyncMode() {
-    assertHighestCapability(SyncMode.X_SNAP, EthProtocol.ETH68);
+    assertHighestCapability(SyncMode.SNAP, EthProtocol.ETH68);
     assertHighestCapability(SyncMode.FULL, EthProtocol.ETH68);
-    assertHighestCapability(SyncMode.X_CHECKPOINT, EthProtocol.ETH68);
+    assertHighestCapability(SyncMode.CHECKPOINT, EthProtocol.ETH68);
     /* Eth67 does not support fast sync, see EIP-4938 */
     assertHighestCapability(SyncMode.FAST, EthProtocol.ETH66);
   }
@@ -1166,9 +1205,9 @@ public final class EthProtocolManagerTest {
     final EthProtocolConfiguration configuration =
         EthProtocolConfiguration.builder().maxEthCapability(EthProtocolVersion.V65).build();
 
-    assertHighestCapability(SyncMode.X_SNAP, EthProtocol.ETH65, configuration);
+    assertHighestCapability(SyncMode.SNAP, EthProtocol.ETH65, configuration);
     assertHighestCapability(SyncMode.FULL, EthProtocol.ETH65, configuration);
-    assertHighestCapability(SyncMode.X_CHECKPOINT, EthProtocol.ETH65, configuration);
+    assertHighestCapability(SyncMode.CHECKPOINT, EthProtocol.ETH65, configuration);
     /* Eth67 does not support fast sync, see EIP-4938 */
     assertHighestCapability(SyncMode.FAST, EthProtocol.ETH65, configuration);
   }
@@ -1180,7 +1219,7 @@ public final class EthProtocolManagerTest {
     final EthProtocolConfiguration configuration =
         EthProtocolConfiguration.builder().minEthCapability(EthProtocolVersion.V64).build();
 
-    final EthProtocolManager ethManager = createEthManager(SyncMode.X_SNAP, configuration);
+    final EthProtocolManager ethManager = createEthManager(SyncMode.SNAP, configuration);
 
     assertThat(ethManager.getSupportedCapabilities()).contains(EthProtocol.ETH64);
     assertThat(ethManager.getSupportedCapabilities()).doesNotContain(EthProtocol.ETH63);
@@ -1193,9 +1232,9 @@ public final class EthProtocolManagerTest {
     final EthProtocolConfiguration configuration =
         EthProtocolConfiguration.builder().maxEthCapability(EthProtocolVersion.V67).build();
 
-    assertHighestCapability(SyncMode.X_SNAP, EthProtocol.ETH67, configuration);
+    assertHighestCapability(SyncMode.SNAP, EthProtocol.ETH67, configuration);
     assertHighestCapability(SyncMode.FULL, EthProtocol.ETH67, configuration);
-    assertHighestCapability(SyncMode.X_CHECKPOINT, EthProtocol.ETH67, configuration);
+    assertHighestCapability(SyncMode.CHECKPOINT, EthProtocol.ETH67, configuration);
     /* Eth67 does not support fast sync, see EIP-4938 */
     assertHighestCapability(SyncMode.FAST, EthProtocol.ETH66, configuration);
   }

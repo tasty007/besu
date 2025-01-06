@@ -19,13 +19,16 @@ import static org.hyperledger.besu.services.pipeline.PipelineBuilder.createPipel
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.BlockParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.FilterParameter;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.BlockTracer;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.Tracer;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.TransactionTrace;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.tracing.flat.FlatTrace;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.tracing.flat.RewardTraceGenerator;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
@@ -41,7 +44,7 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.vm.DebugOperationTracer;
 import org.hyperledger.besu.metrics.BesuMetricCategory;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
-import org.hyperledger.besu.metrics.prometheus.PrometheusMetricsSystem;
+import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.metrics.Counter;
 import org.hyperledger.besu.plugin.services.metrics.LabelledMetric;
 import org.hyperledger.besu.services.pipeline.Pipeline;
@@ -54,24 +57,33 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.function.Function;
-import java.util.function.Supplier;
 import java.util.stream.Stream;
+import javax.annotation.Nonnull;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.tuweni.bytes.Bytes32;
-import org.jetbrains.annotations.NotNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class TraceFilter extends TraceBlock {
-
   private static final Logger LOG = LoggerFactory.getLogger(TraceFilter.class);
+  private final Long maxRange;
+  private final LabelledMetric<Counter> outputCounter;
 
   public TraceFilter(
-      final Supplier<BlockTracer> blockTracerSupplier,
       final ProtocolSchedule protocolSchedule,
-      final BlockchainQueries blockchainQueries) {
-    super(protocolSchedule, blockchainQueries);
+      final BlockchainQueries blockchainQueries,
+      final Long maxRange,
+      final MetricsSystem metricsSystem) {
+    super(protocolSchedule, blockchainQueries, metricsSystem);
+    this.maxRange = maxRange;
+    this.outputCounter =
+        metricsSystem.createLabelledCounter(
+            BesuMetricCategory.BLOCKCHAIN,
+            "transactions_tracefilter_pipeline_processed_total",
+            "Number of transactions processed for trace_filter",
+            "step",
+            "action");
   }
 
   @Override
@@ -81,12 +93,28 @@ public class TraceFilter extends TraceBlock {
 
   @Override
   public JsonRpcResponse response(final JsonRpcRequestContext requestContext) {
-    final FilterParameter filterParameter =
-        requestContext.getRequiredParameter(0, FilterParameter.class);
+    final FilterParameter filterParameter;
+    try {
+      filterParameter = requestContext.getRequiredParameter(0, FilterParameter.class);
+    } catch (JsonRpcParameterException e) {
+      throw new InvalidJsonRpcParameters(
+          "Invalid filter parameter (index 0)", RpcErrorType.INVALID_FILTER_PARAMS, e);
+    }
 
     final long fromBlock = resolveBlockNumber(filterParameter.getFromBlock());
     final long toBlock = resolveBlockNumber(filterParameter.getToBlock());
     LOG.trace("Received RPC rpcName={} fromBlock={} toBlock={}", getName(), fromBlock, toBlock);
+
+    if (maxRange > 0 && toBlock - fromBlock > maxRange) {
+      LOG.atDebug()
+          .setMessage("trace_filter request {} failed:")
+          .addArgument(requestContext.getRequest())
+          .setCause(
+              new IllegalArgumentException(RpcErrorType.EXCEEDS_RPC_MAX_BLOCK_RANGE.getMessage()))
+          .log();
+      return new JsonRpcErrorResponse(
+          requestContext.getRequest().getId(), RpcErrorType.EXCEEDS_RPC_MAX_BLOCK_RANGE);
+    }
 
     final ObjectMapper mapper = new ObjectMapper();
     final ArrayNodeWrapper resultArrayNode =
@@ -134,18 +162,9 @@ public class TraceFilter extends TraceBlock {
                   final MainnetTransactionProcessor transactionProcessor =
                       protocolSpec.getTransactionProcessor();
                   final ChainUpdater chainUpdater = new ChainUpdater(traceableState);
-                  final LabelledMetric<Counter> outputCounter =
-                      new PrometheusMetricsSystem(
-                              BesuMetricCategory.DEFAULT_METRIC_CATEGORIES, false)
-                          .createLabelledCounter(
-                              BesuMetricCategory.BLOCKCHAIN,
-                              "transactions_tracefilter_pipeline_processed_total",
-                              "Number of transactions processed for trace_filter",
-                              "step",
-                              "action");
 
                   DebugOperationTracer debugOperationTracer =
-                      new DebugOperationTracer(new TraceOptions(false, false, true));
+                      new DebugOperationTracer(new TraceOptions(false, false, true), false);
                   ExecuteTransactionStep executeTransactionStep =
                       new ExecuteTransactionStep(
                           chainUpdater,
@@ -195,7 +214,7 @@ public class TraceFilter extends TraceBlock {
     return new JsonRpcSuccessResponse(requestContext.getRequest().getId(), result.getArrayNode());
   }
 
-  @NotNull
+  @Nonnull
   private List<Block> getBlockList(
       final long fromBlock, final long toBlock, final Optional<Block> block) {
     List<Block> blockList = new ArrayList<>();

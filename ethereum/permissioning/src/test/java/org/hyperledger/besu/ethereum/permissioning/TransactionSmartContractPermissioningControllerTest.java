@@ -14,7 +14,6 @@
  */
 package org.hyperledger.besu.ethereum.permissioning;
 
-import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider.createInMemoryBlockchain;
@@ -23,13 +22,14 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import org.hyperledger.besu.config.GenesisConfigFile;
+import org.hyperledger.besu.config.GenesisConfig;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.chain.GenesisState;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
+import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.ProtocolScheduleFixture;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
@@ -42,7 +42,6 @@ import org.hyperledger.besu.plugin.services.metrics.Counter;
 import java.io.IOException;
 import java.math.BigInteger;
 
-import com.google.common.io.Resources;
 import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -57,13 +56,12 @@ public class TransactionSmartContractPermissioningControllerTest {
   @Mock private Counter checkUnpermittedCounter;
 
   private TransactionSmartContractPermissioningController setupController(
-      final String resourceName, final String contractAddressString) throws IOException {
+      final String resourceName, final String contractAddressString) {
     final ProtocolSchedule protocolSchedule = ProtocolScheduleFixture.MAINNET;
 
-    final String emptyContractFile =
-        Resources.toString(this.getClass().getResource(resourceName), UTF_8);
     final GenesisState genesisState =
-        GenesisState.fromConfig(GenesisConfigFile.fromConfig(emptyContractFile), protocolSchedule);
+        GenesisState.fromConfig(
+            GenesisConfig.fromSource(this.getClass().getResource(resourceName)), protocolSchedule);
 
     final MutableBlockchain blockchain = createInMemoryBlockchain(genesisState.getBlock());
     final WorldStateArchive worldArchive = createInMemoryWorldStateArchive();
@@ -71,7 +69,8 @@ public class TransactionSmartContractPermissioningControllerTest {
     genesisState.writeStateTo(worldArchive.getMutable());
 
     final TransactionSimulator ts =
-        new TransactionSimulator(blockchain, worldArchive, protocolSchedule, 0L);
+        new TransactionSimulator(
+            blockchain, worldArchive, protocolSchedule, MiningConfiguration.newDefault(), 0L);
     final Address contractAddress = Address.fromHexString(contractAddressString);
 
     when(metricsSystem.createCounter(

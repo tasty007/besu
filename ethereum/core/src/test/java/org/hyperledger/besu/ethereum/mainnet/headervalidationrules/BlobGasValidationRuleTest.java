@@ -1,5 +1,5 @@
 /*
- * Copyright Hyperledger Besu Contributors.
+ * Copyright contributors to Hyperledger Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -12,7 +12,6 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-
 package org.hyperledger.besu.ethereum.mainnet.headervalidationrules;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -21,6 +20,7 @@ import org.hyperledger.besu.datatypes.BlobGas;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.evm.gascalculator.CancunGasCalculator;
+import org.hyperledger.besu.evm.gascalculator.PragueGasCalculator;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -28,19 +28,28 @@ import org.junit.jupiter.api.Test;
 /** Tests for the {@link BlobGasValidationRule} class. */
 public class BlobGasValidationRuleTest {
 
-  private CancunGasCalculator gasCalculator;
-  private BlobGasValidationRule blobGasValidationRule;
+  private CancunGasCalculator cancunGasCalculator;
+  private BlobGasValidationRule cancunBlobGasValidationRule;
+
+  private PragueGasCalculator pragueGasCalculator;
+  private BlobGasValidationRule pragueBlobGasValidationRule;
 
   @BeforeEach
   public void setUp() {
-    gasCalculator = new CancunGasCalculator();
-    blobGasValidationRule = new BlobGasValidationRule(gasCalculator);
+    cancunGasCalculator = new CancunGasCalculator();
+    cancunBlobGasValidationRule = new BlobGasValidationRule(cancunGasCalculator);
+
+    pragueGasCalculator = new PragueGasCalculator();
+    pragueBlobGasValidationRule = new BlobGasValidationRule(pragueGasCalculator);
   }
 
-  /** Tests that the header blob gas matches the calculated blob gas and passes validation. */
+  /**
+   * Cancun EIP-4844 - Tests that the header blob gas matches the calculated blob gas and passes
+   * validation.
+   */
   @Test
   public void validateHeader_BlobGasMatchesCalculated_SuccessValidation() {
-    long target = gasCalculator.getTargetBlobGasPerBlock();
+    long target = cancunGasCalculator.getTargetBlobGasPerBlock();
 
     // Create parent header
     final BlockHeaderTestFixture parentBuilder = new BlockHeaderTestFixture();
@@ -53,15 +62,16 @@ public class BlobGasValidationRuleTest {
     headerBuilder.excessBlobGas(BlobGas.of(1L));
     final BlockHeader header = headerBuilder.buildHeader();
 
-    assertThat(blobGasValidationRule.validate(header, parentHeader)).isTrue();
+    assertThat(cancunBlobGasValidationRule.validate(header, parentHeader)).isTrue();
   }
 
   /**
-   * Tests that the header blob gas is different from the calculated blob gas and fails validation.
+   * Cancun EIP-4844 - Tests that the header blob gas is different from the calculated blob gas and
+   * fails validation.
    */
   @Test
   public void validateHeader_BlobGasDifferentFromCalculated_FailsValidation() {
-    long target = gasCalculator.getTargetBlobGasPerBlock();
+    long target = cancunGasCalculator.getTargetBlobGasPerBlock();
 
     // Create parent header
     final BlockHeaderTestFixture parentBuilder = new BlockHeaderTestFixture();
@@ -73,6 +83,49 @@ public class BlobGasValidationRuleTest {
     final BlockHeaderTestFixture headerBuilder = new BlockHeaderTestFixture();
     final BlockHeader header = headerBuilder.buildHeader();
 
-    assertThat(blobGasValidationRule.validate(header, parentHeader)).isFalse();
+    assertThat(cancunBlobGasValidationRule.validate(header, parentHeader)).isFalse();
+  }
+
+  /**
+   * Prague EIP-7840 - Tests that the header blob gas matches the calculated blob gas and passes
+   * validation.
+   */
+  @Test
+  public void validateHeader_BlobGasMatchesCalculated_SuccessValidation_Prague() {
+    long target = pragueGasCalculator.getTargetBlobGasPerBlock();
+
+    // Create parent header
+    final BlockHeaderTestFixture parentBuilder = new BlockHeaderTestFixture();
+    parentBuilder.excessBlobGas(BlobGas.of(1L));
+    parentBuilder.blobGasUsed(target);
+    final BlockHeader parentHeader = parentBuilder.buildHeader();
+
+    // Create block header with matching excessBlobGas
+    final BlockHeaderTestFixture headerBuilder = new BlockHeaderTestFixture();
+    headerBuilder.excessBlobGas(BlobGas.of(1L));
+    final BlockHeader header = headerBuilder.buildHeader();
+
+    assertThat(pragueBlobGasValidationRule.validate(header, parentHeader)).isTrue();
+  }
+
+  /**
+   * Prague EIP-7840 - Tests that the header blob gas is different from the calculated blob gas and
+   * fails validation.
+   */
+  @Test
+  public void validateHeader_BlobGasDifferentFromCalculated_FailsValidation_Prague() {
+    long target = pragueGasCalculator.getTargetBlobGasPerBlock();
+
+    // Create parent header
+    final BlockHeaderTestFixture parentBuilder = new BlockHeaderTestFixture();
+    parentBuilder.excessBlobGas(BlobGas.of(1L));
+    parentBuilder.blobGasUsed(target);
+    final BlockHeader parentHeader = parentBuilder.buildHeader();
+
+    // Create block header with different excessBlobGas
+    final BlockHeaderTestFixture headerBuilder = new BlockHeaderTestFixture();
+    final BlockHeader header = headerBuilder.buildHeader();
+
+    assertThat(pragueBlobGasValidationRule.validate(header, parentHeader)).isFalse();
   }
 }

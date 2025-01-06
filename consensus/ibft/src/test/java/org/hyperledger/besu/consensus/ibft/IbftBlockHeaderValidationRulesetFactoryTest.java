@@ -29,6 +29,7 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.ProtocolContext;
+import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.Difficulty;
@@ -37,6 +38,7 @@ import org.hyperledger.besu.ethereum.mainnet.BlockHeaderValidator;
 import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 
+import java.time.Duration;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -51,7 +53,7 @@ public class IbftBlockHeaderValidationRulesetFactoryTest {
         null,
         null,
         setupContextWithBftExtraDataEncoder(validators, new IbftExtraDataCodec()),
-        Optional.empty());
+        new BadBlockManager());
   }
 
   @Test
@@ -92,7 +94,7 @@ public class IbftBlockHeaderValidationRulesetFactoryTest {
 
     final BlockHeaderValidator validator =
         IbftBlockHeaderValidationRulesetFactory.blockHeaderValidator(
-                5, Optional.of(FeeMarket.london(1)))
+                Duration.ofSeconds(5), Optional.of(FeeMarket.london(1)))
             .build();
 
     assertThat(
@@ -371,7 +373,8 @@ public class IbftBlockHeaderValidationRulesetFactoryTest {
   }
 
   public BlockHeaderValidator getBlockHeaderValidator() {
-    return IbftBlockHeaderValidationRulesetFactory.blockHeaderValidator(5, Optional.empty())
+    return IbftBlockHeaderValidationRulesetFactory.blockHeaderValidator(
+            Duration.ofSeconds(5), Optional.empty())
         .build();
   }
 }

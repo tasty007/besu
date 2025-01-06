@@ -1,5 +1,5 @@
 /*
- * Copyright contributors to Hyperledger Besu
+ * Copyright contributors to Hyperledger Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -11,7 +11,6 @@
  * specific language governing permissions and limitations under the License.
  *
  * SPDX-License-Identifier: Apache-2.0
- *
  */
 package org.hyperledger.besu.evm.toy;
 
@@ -33,7 +32,6 @@ import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
 import java.io.PrintStream;
 import java.math.BigInteger;
-import java.nio.charset.StandardCharsets;
 import java.util.Deque;
 import java.util.List;
 
@@ -191,12 +189,11 @@ public class EvmToyCommand implements Runnable {
               .blockValues(new ToyBlockValues())
               .completer(c -> {})
               .miningBeneficiary(Address.ZERO)
-              .blockHashLookup(h -> null)
+              .blockHashLookup((__, ___) -> null)
               .build();
 
       final MessageCallProcessor mcp = new MessageCallProcessor(evm, precompileContractRegistry);
-      final ContractCreationProcessor ccp =
-          new ContractCreationProcessor(evm.getGasCalculator(), evm, false, List.of(), 0);
+      final ContractCreationProcessor ccp = new ContractCreationProcessor(evm, false, List.of(), 0);
       stopwatch.start();
       Deque<MessageFrame> messageFrameStack = initialMessageFrame.getMessageFrameStack();
       while (!messageFrameStack.isEmpty()) {
@@ -210,9 +207,7 @@ public class EvmToyCommand implements Runnable {
             out.println(messageFrame.getExceptionalHaltReason().get());
           }
           if (messageFrame.getRevertReason().isPresent()) {
-            out.println(
-                new String(
-                    messageFrame.getRevertReason().get().toArrayUnsafe(), StandardCharsets.UTF_8));
+            out.println(messageFrame.getRevertReason().get().toHexString());
           }
         }
         if (messageFrameStack.isEmpty()) {

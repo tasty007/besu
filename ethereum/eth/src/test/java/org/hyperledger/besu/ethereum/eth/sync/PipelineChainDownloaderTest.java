@@ -34,6 +34,7 @@ import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncTarget;
 import org.hyperledger.besu.ethereum.eth.sync.tasks.exceptions.InvalidBlockException;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.messages.DisconnectMessage.DisconnectReason;
+import org.hyperledger.besu.metrics.SyncDurationMetrics;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.services.pipeline.Pipeline;
 
@@ -52,7 +53,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 public class PipelineChainDownloaderTest {
 
-  @Mock private SyncTargetManager syncTargetManager;
+  @Mock private AbstractSyncTargetManager syncTargetManager;
   @Mock private DownloadPipelineFactory downloadPipelineFactory;
   @Mock private EthScheduler scheduler;
   @Mock private Pipeline<?> downloadPipeline;
@@ -69,13 +70,15 @@ public class PipelineChainDownloaderTest {
   public void setUp() {
     syncTarget = new SyncTarget(peer1, commonAncestor);
     syncTarget2 = new SyncTarget(peer2, commonAncestor);
+    final NoOpMetricsSystem noOpMetricsSystem = new NoOpMetricsSystem();
     chainDownloader =
         new PipelineChainDownloader(
             syncState,
             syncTargetManager,
             downloadPipelineFactory,
             scheduler,
-            new NoOpMetricsSystem());
+            noOpMetricsSystem,
+            SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS);
   }
 
   @Test
@@ -318,9 +321,10 @@ public class PipelineChainDownloaderTest {
     if (isCancelled) {
       chainDownloader.cancel();
     }
-    selectTargetFuture.completeExceptionally(new InvalidBlockException("", 1, null));
+    selectTargetFuture.completeExceptionally(InvalidBlockException.create("Failed"));
 
-    verify(syncState, times(1)).disconnectSyncTarget(DisconnectReason.BREACH_OF_PROTOCOL);
+    verify(syncState, times(1))
+        .disconnectSyncTarget(DisconnectReason.BREACH_OF_PROTOCOL_INVALID_BLOCK);
   }
 
   private CompletableFuture<Void> expectPipelineStarted(final SyncTarget syncTarget) {

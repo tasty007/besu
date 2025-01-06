@@ -1,5 +1,5 @@
 /*
- * Copyright Hyperledger Besu Contributors.
+ * Copyright contributors to Hyperledger Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -24,6 +24,7 @@ import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
+import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
@@ -44,7 +45,7 @@ import org.slf4j.LoggerFactory;
 public class BackwardSyncContext {
   private static final Logger LOG = LoggerFactory.getLogger(BackwardSyncContext.class);
   public static final int BATCH_SIZE = 200;
-  private static final int DEFAULT_MAX_RETRIES = 20;
+  private static final int DEFAULT_MAX_RETRIES = 2;
   private static final long MILLIS_DELAY_BETWEEN_PROGRESS_LOG = 10_000L;
   private static final long DEFAULT_MILLIS_BETWEEN_RETRIES = 5000;
   private static final int DEFAULT_MAX_CHAIN_EVENT_ENTRIES = BadBlockManager.MAX_BAD_BLOCKS_SIZE;
@@ -52,6 +53,7 @@ public class BackwardSyncContext {
   protected final ProtocolContext protocolContext;
   private final ProtocolSchedule protocolSchedule;
   private final EthContext ethContext;
+  private final SynchronizerConfiguration synchronizerConfiguration;
   private final MetricsSystem metricsSystem;
   private final SyncState syncState;
   private final AtomicReference<Status> currentBackwardSyncStatus = new AtomicReference<>();
@@ -65,6 +67,7 @@ public class BackwardSyncContext {
   public BackwardSyncContext(
       final ProtocolContext protocolContext,
       final ProtocolSchedule protocolSchedule,
+      final SynchronizerConfiguration synchronizerConfiguration,
       final MetricsSystem metricsSystem,
       final EthContext ethContext,
       final SyncState syncState,
@@ -72,6 +75,7 @@ public class BackwardSyncContext {
     this(
         protocolContext,
         protocolSchedule,
+        synchronizerConfiguration,
         metricsSystem,
         ethContext,
         syncState,
@@ -83,6 +87,7 @@ public class BackwardSyncContext {
   public BackwardSyncContext(
       final ProtocolContext protocolContext,
       final ProtocolSchedule protocolSchedule,
+      final SynchronizerConfiguration synchronizerConfiguration,
       final MetricsSystem metricsSystem,
       final EthContext ethContext,
       final SyncState syncState,
@@ -93,6 +98,7 @@ public class BackwardSyncContext {
     this.protocolContext = protocolContext;
     this.protocolSchedule = protocolSchedule;
     this.ethContext = ethContext;
+    this.synchronizerConfiguration = synchronizerConfiguration;
     this.metricsSystem = metricsSystem;
     this.syncState = syncState;
     this.backwardChain = backwardChain;
@@ -125,16 +131,24 @@ public class BackwardSyncContext {
   }
 
   public synchronized CompletableFuture<Void> syncBackwardsUntil(final Hash newBlockHash) {
-    if (!isTrusted(newBlockHash)) {
-      backwardChain.addNewHash(newBlockHash);
-    }
+    if (isReady()) {
+      if (!isTrusted(newBlockHash)) {
+        LOG.atDebug()
+            .setMessage("Appending new head block hash {} to backward sync")
+            .addArgument(newBlockHash::toHexString)
+            .log();
+        backwardChain.addNewHash(newBlockHash);
+      }
 
-    final Status status = getOrStartSyncSession();
-    backwardChain
-        .getBlock(newBlockHash)
-        .ifPresent(
-            newTargetBlock -> status.updateTargetHeight(newTargetBlock.getHeader().getNumber()));
-    return status.currentFuture;
+      final Status status = getOrStartSyncSession();
+      backwardChain
+          .getBlock(newBlockHash)
+          .ifPresent(
+              newTargetBlock -> status.updateTargetHeight(newTargetBlock.getHeader().getNumber()));
+      return status.currentFuture;
+    } else {
+      return CompletableFuture.failedFuture(new Throwable("Backward sync is not ready"));
+    }
   }
 
   public synchronized CompletableFuture<Void> syncBackwardsUntil(final Block newPivot) {
@@ -142,9 +156,13 @@ public class BackwardSyncContext {
       backwardChain.appendTrustedBlock(newPivot);
     }
 
-    final Status status = getOrStartSyncSession();
-    status.updateTargetHeight(newPivot.getHeader().getNumber());
-    return status.currentFuture;
+    if (isReady()) {
+      final Status status = getOrStartSyncSession();
+      status.updateTargetHeight(newPivot.getHeader().getNumber());
+      return status.currentFuture;
+    } else {
+      return CompletableFuture.failedFuture(new Throwable("Backward sync is not ready"));
+    }
   }
 
   private Status getOrStartSyncSession() {
@@ -316,10 +334,9 @@ public class BackwardSyncContext {
                 HeaderValidationMode.NONE);
     if (optResult.isSuccessful()) {
       LOG.atTrace()
-          .setMessage("Block {} was validated, going to import it")
+          .setMessage("Block {} was validated, going to move the head")
           .addArgument(block::toLogString)
           .log();
-      optResult.getYield().get().getWorldState().persist(block.getHeader());
       this.getProtocolContext()
           .getBlockchain()
           .appendBlock(block, optResult.getYield().get().getReceipts());
@@ -401,7 +418,7 @@ public class BackwardSyncContext {
     final float completedPercentage = 100.0f * imported / estimatedTotal;
 
     if (completedPercentage < 100.0f) {
-      if (currentStatus.progressLogDue()) {
+      if (currentStatus.progressLogDue() && targetHeight > 0) {
         LOG.info(
             String.format(
                 "Backward sync phase 2 of 2, %.2f%% completed, imported %d blocks of at least %d (current head %d, target head %d). Peers: %d",
@@ -418,6 +435,10 @@ public class BackwardSyncContext {
               "Backward sync phase 2 of 2 completed, imported a total of %d blocks. Peers: %d",
               imported, getEthContext().getEthPeers().peerCount()));
     }
+  }
+
+  public SynchronizerConfiguration getSynchronizerConfiguration() {
+    return synchronizerConfiguration;
   }
 
   class Status {

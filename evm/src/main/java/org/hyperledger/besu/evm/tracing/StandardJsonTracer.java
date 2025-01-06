@@ -1,5 +1,5 @@
 /*
- * Copyright contributors to Hyperledger Besu
+ * Copyright contributors to Hyperledger Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -11,15 +11,13 @@
  * specific language governing permissions and limitations under the License.
  *
  * SPDX-License-Identifier: Apache-2.0
- *
  */
-
 package org.hyperledger.besu.evm.tracing;
 
-import static com.google.common.base.Strings.padStart;
-
+import org.hyperledger.besu.evm.code.OpcodeInfo;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
+import org.hyperledger.besu.evm.operation.AbstractCallOperation;
 import org.hyperledger.besu.evm.operation.Operation;
 
 import java.io.PrintStream;
@@ -49,6 +47,7 @@ public class StandardJsonTracer implements OperationTracer {
   private Bytes memory;
   private int memorySize;
   private int depth;
+  private int subdepth;
   private String storageString;
 
   /**
@@ -126,9 +125,7 @@ public class StandardJsonTracer implements OperationTracer {
     for (int i = messageFrame.stackSize() - 1; i >= 0; i--) {
       stack.add("\"" + shortBytes(messageFrame.getStackItem(i)) + "\"");
     }
-    pc =
-        messageFrame.getPC()
-            - messageFrame.getCode().getCodeSection(messageFrame.getSection()).getEntryPoint();
+    pc = messageFrame.getPC() - messageFrame.getCode().getCodeSection(0).getEntryPoint();
     section = messageFrame.getSection();
     gas = shortNumber(messageFrame.getRemainingGas());
     memorySize = messageFrame.memoryWordSize() * 32;
@@ -138,6 +135,7 @@ public class StandardJsonTracer implements OperationTracer {
       memory = null;
     }
     depth = messageFrame.getMessageStackSize();
+    subdepth = messageFrame.returnStackSize();
 
     StringBuilder sb = new StringBuilder();
     if (showStorage) {
@@ -171,18 +169,37 @@ public class StandardJsonTracer implements OperationTracer {
   public void tracePostExecution(
       final MessageFrame messageFrame, final Operation.OperationResult executeResult) {
     final Operation currentOp = messageFrame.getCurrentOperation();
+    if (currentOp.isVirtualOperation()) {
+      return;
+    }
     final int opcode = currentOp.getOpcode();
     final Bytes returnData = messageFrame.getReturnData();
+    long thisGasCost = executeResult.getGasCost();
+    if (currentOp instanceof AbstractCallOperation) {
+      thisGasCost += messageFrame.getMessageFrameStack().getFirst().getRemainingGas();
+    }
 
     final StringBuilder sb = new StringBuilder(1024);
     sb.append("{");
     sb.append("\"pc\":").append(pc).append(",");
-    if (section > 0) {
+    boolean eofContract = messageFrame.getCode().getEofVersion() > 0;
+    if (eofContract) {
       sb.append("\"section\":").append(section).append(",");
     }
     sb.append("\"op\":").append(opcode).append(",");
+    OpcodeInfo opInfo = OpcodeInfo.getOpcode(opcode);
+    if (eofContract && opInfo.pcAdvance() > 1) {
+      var immediate =
+          messageFrame
+              .getCode()
+              .getBytes()
+              .slice(
+                  pc + messageFrame.getCode().getCodeSection(0).getEntryPoint() + 1,
+                  opInfo.pcAdvance() - 1);
+      sb.append("\"immediate\":\"").append(immediate.toHexString()).append("\",");
+    }
     sb.append("\"gas\":\"").append(gas).append("\",");
-    sb.append("\"gasCost\":\"").append(shortNumber(executeResult.getGasCost())).append("\",");
+    sb.append("\"gasCost\":\"").append(shortNumber(thisGasCost)).append("\",");
     if (memory != null) {
       sb.append("\"memory\":\"").append(memory.toHexString()).append("\",");
     }
@@ -194,6 +211,9 @@ public class StandardJsonTracer implements OperationTracer {
       sb.append("\"returnData\":\"").append(returnData.toHexString()).append("\",");
     }
     sb.append("\"depth\":").append(depth).append(",");
+    if (subdepth >= 1) {
+      sb.append("\"functionDepth\":").append(subdepth).append(",");
+    }
     sb.append("\"refund\":").append(messageFrame.getGasRefund()).append(",");
     sb.append("\"opName\":\"").append(currentOp.getName()).append("\"");
     if (executeResult.getHaltReason() != null) {
@@ -202,43 +222,12 @@ public class StandardJsonTracer implements OperationTracer {
           .append("\"");
     } else if (messageFrame.getRevertReason().isPresent()) {
       sb.append(",\"error\":\"")
-          .append(quoteEscape(messageFrame.getRevertReason().orElse(Bytes.EMPTY)))
+          .append(messageFrame.getRevertReason().get().toHexString())
           .append("\"");
     }
 
     sb.append(storageString).append("}");
     out.println(sb);
-  }
-
-  private static String quoteEscape(final Bytes bytes) {
-    final StringBuilder result = new StringBuilder(bytes.size());
-    for (final byte b : bytes.toArrayUnsafe()) {
-      final int c = Byte.toUnsignedInt(b);
-      // list from RFC-4627 section 2
-      if (c == '"') {
-        result.append("\\\"");
-      } else if (c == '\\') {
-        result.append("\\\\");
-      } else if (c == '/') {
-        result.append("\\/");
-      } else if (c == '\b') {
-        result.append("\\b");
-      } else if (c == '\f') {
-        result.append("\\f");
-      } else if (c == '\n') {
-        result.append("\\n");
-      } else if (c == '\r') {
-        result.append("\\r");
-      } else if (c == '\t') {
-        result.append("\\t");
-      } else if (c <= 0x1F) {
-        result.append("\\u");
-        result.append(padStart(Integer.toHexString(c), 4, '0'));
-      } else {
-        result.append((char) b);
-      }
-    }
-    return result.toString();
   }
 
   @Override

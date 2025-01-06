@@ -1,5 +1,5 @@
 /*
- * Copyright Hyperledger Besu Contributors.
+ * Copyright contributors to Hyperledger Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -20,13 +20,13 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.JsonRpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.Quantity;
-import org.hyperledger.besu.ethereum.core.MiningParameters;
+import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 
 public class MinerGetMinGasPrice implements JsonRpcMethod {
-  private final MiningParameters miningParameters;
+  private final MiningConfiguration miningConfiguration;
 
-  public MinerGetMinGasPrice(final MiningParameters miningParameters) {
-    this.miningParameters = miningParameters;
+  public MinerGetMinGasPrice(final MiningConfiguration miningConfiguration) {
+    this.miningConfiguration = miningConfiguration;
   }
 
   @Override
@@ -38,6 +38,6 @@ public class MinerGetMinGasPrice implements JsonRpcMethod {
   public JsonRpcResponse response(final JsonRpcRequestContext requestContext) {
     return new JsonRpcSuccessResponse(
         requestContext.getRequest().getId(),
-        Quantity.create(miningParameters.getMinTransactionGasPrice()));
+        Quantity.create(miningConfiguration.getMinTransactionGasPrice()));
   }
 }

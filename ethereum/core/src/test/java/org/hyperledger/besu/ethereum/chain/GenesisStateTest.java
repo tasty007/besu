@@ -24,23 +24,23 @@ import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.ethereum.core.ProtocolScheduleFixture;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
-import org.hyperledger.besu.ethereum.worldstate.DataStorageFormat;
+import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.evm.account.Account;
 
 import java.util.stream.Stream;
 
-import com.google.common.base.Charsets;
-import com.google.common.io.Resources;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
+import org.apache.tuweni.units.bigints.UInt64;
 import org.bouncycastle.util.encoders.Hex;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtensionContext;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.ArgumentsProvider;
 import org.junit.jupiter.params.provider.ArgumentsSource;
 
-public final class GenesisStateTest {
+final class GenesisStateTest {
 
   /** Known RLP encoded bytes of the Olympic Genesis Block. */
   private static final String OLYMPIC_RLP =
@@ -57,17 +57,18 @@ public final class GenesisStateTest {
     @Override
     public Stream<? extends Arguments> provideArguments(final ExtensionContext context) {
       return Stream.of(
-          Arguments.of(DataStorageFormat.BONSAI), Arguments.of(DataStorageFormat.FOREST));
+          Arguments.of(DataStorageConfiguration.DEFAULT_FOREST_CONFIG),
+          Arguments.of(DataStorageConfiguration.DEFAULT_BONSAI_CONFIG));
     }
   }
 
   @ParameterizedTest
   @ArgumentsSource(GenesisStateTestArguments.class)
-  public void createFromJsonWithAllocs(final DataStorageFormat dataStorageFormat) throws Exception {
+  public void createFromJsonWithAllocs(final DataStorageConfiguration dataStorageConfiguration) {
     final GenesisState genesisState =
-        GenesisState.fromJson(
-            dataStorageFormat,
-            Resources.toString(GenesisStateTest.class.getResource("genesis1.json"), Charsets.UTF_8),
+        GenesisState.fromJsonSource(
+            dataStorageConfiguration,
+            GenesisStateTest.class.getResource("genesis1.json"),
             ProtocolScheduleFixture.MAINNET);
     final BlockHeader header = genesisState.getBlock().getHeader();
     assertThat(header.getStateRoot())
@@ -93,11 +94,11 @@ public final class GenesisStateTest {
 
   @ParameterizedTest
   @ArgumentsSource(GenesisStateTestArguments.class)
-  public void createFromJsonNoAllocs(final DataStorageFormat dataStorageFormat) throws Exception {
+  void createFromJsonNoAllocs(final DataStorageConfiguration dataStorageConfiguration) {
     final GenesisState genesisState =
-        GenesisState.fromJson(
-            dataStorageFormat,
-            Resources.toString(GenesisStateTest.class.getResource("genesis2.json"), Charsets.UTF_8),
+        GenesisState.fromJsonSource(
+            dataStorageConfiguration,
+            GenesisStateTest.class.getResource("genesis2.json"),
             ProtocolScheduleFixture.MAINNET);
     final BlockHeader header = genesisState.getBlock().getHeader();
     assertThat(header.getStateRoot()).isEqualTo(Hash.EMPTY_TRIE_HASH);
@@ -109,12 +110,13 @@ public final class GenesisStateTest {
   }
 
   private void assertContractInvariants(
-      final DataStorageFormat dataStorageFormat, final String sourceFile, final String blockHash)
-      throws Exception {
+      final DataStorageConfiguration dataStorageConfiguration,
+      final String sourceFile,
+      final String blockHash) {
     final GenesisState genesisState =
-        GenesisState.fromJson(
-            dataStorageFormat,
-            Resources.toString(GenesisStateTest.class.getResource(sourceFile), Charsets.UTF_8),
+        GenesisState.fromJsonSource(
+            dataStorageConfiguration,
+            GenesisStateTest.class.getResource(sourceFile),
             ProtocolScheduleFixture.MAINNET);
     final BlockHeader header = genesisState.getBlock().getHeader();
     assertThat(header.getHash()).isEqualTo(Hash.fromHexString(blockHash));
@@ -136,22 +138,20 @@ public final class GenesisStateTest {
 
   @ParameterizedTest
   @ArgumentsSource(GenesisStateTestArguments.class)
-  public void createFromJsonWithContract(final DataStorageFormat dataStorageFormat)
-      throws Exception {
+  void createFromJsonWithContract(final DataStorageConfiguration dataStorageConfiguration) {
     assertContractInvariants(
-        dataStorageFormat,
+        dataStorageConfiguration,
         "genesis3.json",
         "0xe7fd8db206dcaf066b7c97b8a42a0abc18653613560748557ab44868652a78b6");
   }
 
   @ParameterizedTest
   @ArgumentsSource(GenesisStateTestArguments.class)
-  public void createFromJsonWithNonce(final DataStorageFormat dataStorageFormat) throws Exception {
+  void createFromJsonWithNonce(final DataStorageConfiguration dataStorageConfiguration) {
     final GenesisState genesisState =
-        GenesisState.fromJson(
-            dataStorageFormat,
-            Resources.toString(
-                GenesisStateTest.class.getResource("genesisNonce.json"), Charsets.UTF_8),
+        GenesisState.fromJsonSource(
+            dataStorageConfiguration,
+            GenesisStateTest.class.getResource("genesisNonce.json"),
             ProtocolScheduleFixture.MAINNET);
     final BlockHeader header = genesisState.getBlock().getHeader();
     assertThat(header.getHash())
@@ -162,12 +162,11 @@ public final class GenesisStateTest {
 
   @ParameterizedTest
   @ArgumentsSource(GenesisStateTestArguments.class)
-  public void encodeOlympicBlock(final DataStorageFormat dataStorageFormat) throws Exception {
+  void encodeOlympicBlock(final DataStorageConfiguration dataStorageConfiguration) {
     final GenesisState genesisState =
-        GenesisState.fromJson(
-            dataStorageFormat,
-            Resources.toString(
-                GenesisStateTest.class.getResource("genesis-olympic.json"), Charsets.UTF_8),
+        GenesisState.fromJsonSource(
+            dataStorageConfiguration,
+            GenesisStateTest.class.getResource("genesis-olympic.json"),
             ProtocolScheduleFixture.MAINNET);
     final BytesValueRLPOutput tmp = new BytesValueRLPOutput();
     genesisState.getBlock().writeTo(tmp);
@@ -183,12 +182,11 @@ public final class GenesisStateTest {
 
   @ParameterizedTest
   @ArgumentsSource(GenesisStateTestArguments.class)
-  public void genesisFromShanghai(final DataStorageFormat dataStorageFormat) throws Exception {
+  void genesisFromShanghai(final DataStorageConfiguration dataStorageConfiguration) {
     final GenesisState genesisState =
-        GenesisState.fromJson(
-            dataStorageFormat,
-            Resources.toString(
-                GenesisStateTest.class.getResource("genesis_shanghai.json"), Charsets.UTF_8),
+        GenesisState.fromJsonSource(
+            dataStorageConfiguration,
+            GenesisStateTest.class.getResource("genesis_shanghai.json"),
             ProtocolScheduleFixture.MAINNET);
     final BlockHeader header = genesisState.getBlock().getHeader();
     assertThat(header.getHash())
@@ -196,8 +194,8 @@ public final class GenesisStateTest {
             Hash.fromHexString(
                 "0xfdc41f92053811b877be43e61cab6b0d9ee55501ae2443df0970c753747f12d8"));
     assertThat(header.getGasLimit()).isEqualTo(0x2fefd8);
-    assertThat(header.getGasUsed()).isEqualTo(0);
-    assertThat(header.getNumber()).isEqualTo(0);
+    assertThat(header.getGasUsed()).isZero();
+    assertThat(header.getNumber()).isZero();
     assertThat(header.getReceiptsRoot())
         .isEqualTo(
             Hash.fromHexString(
@@ -223,7 +221,7 @@ public final class GenesisStateTest {
     final Account last =
         worldState.get(Address.fromHexString("fb289e2b2b65fb63299a682d000744671c50417b"));
     assertThat(first).isNotNull();
-    assertThat(first.getBalance().toLong()).isEqualTo(0);
+    assertThat(first.getBalance().toLong()).isZero();
     assertThat(first.getCode())
         .isEqualTo(Bytes.fromHexString("0x5f804955600180495560028049556003804955"));
     assertThat(last).isNotNull();
@@ -233,12 +231,11 @@ public final class GenesisStateTest {
 
   @ParameterizedTest
   @ArgumentsSource(GenesisStateTestArguments.class)
-  public void genesisFromCancun(final DataStorageFormat dataStorageFormat) throws Exception {
+  void genesisFromCancun(final DataStorageConfiguration dataStorageConfiguration) {
     final GenesisState genesisState =
-        GenesisState.fromJson(
-            dataStorageFormat,
-            Resources.toString(
-                GenesisStateTest.class.getResource("genesis_cancun.json"), Charsets.UTF_8),
+        GenesisState.fromJsonSource(
+            dataStorageConfiguration,
+            GenesisStateTest.class.getResource("genesis_cancun.json"),
             ProtocolScheduleFixture.MAINNET);
     final BlockHeader header = genesisState.getBlock().getHeader();
     assertThat(header.getHash())
@@ -246,8 +243,8 @@ public final class GenesisStateTest {
             Hash.fromHexString(
                 "0x87846b86c1026fa7d7be2da045716274231de1871065a320659c9b111287c688"));
     assertThat(header.getGasLimit()).isEqualTo(0x2fefd8);
-    assertThat(header.getGasUsed()).isEqualTo(0);
-    assertThat(header.getNumber()).isEqualTo(0);
+    assertThat(header.getGasUsed()).isZero();
+    assertThat(header.getNumber()).isZero();
     assertThat(header.getReceiptsRoot())
         .isEqualTo(
             Hash.fromHexString(
@@ -273,11 +270,77 @@ public final class GenesisStateTest {
     final Account last =
         worldState.get(Address.fromHexString("fb289e2b2b65fb63299a682d000744671c50417b"));
     assertThat(first).isNotNull();
-    assertThat(first.getBalance().toLong()).isEqualTo(0);
+    assertThat(first.getBalance().toLong()).isZero();
     assertThat(first.getCode())
         .isEqualTo(Bytes.fromHexString("0x5f804955600180495560028049556003804955"));
     assertThat(last).isNotNull();
     Wei lastBalance = last.getBalance();
     assertThat(lastBalance).isEqualTo(Wei.fromHexString("0x123450000000000000000"));
+    assertThat(header.getRequestsHash().isPresent()).isFalse();
+  }
+
+  @ParameterizedTest
+  @ArgumentsSource(GenesisStateTestArguments.class)
+  void genesisFromPrague(final DataStorageConfiguration dataStorageConfiguration) {
+    final GenesisState genesisState =
+        GenesisState.fromJsonSource(
+            dataStorageConfiguration,
+            GenesisStateTest.class.getResource("genesis_prague.json"),
+            ProtocolScheduleFixture.MAINNET);
+    final BlockHeader header = genesisState.getBlock().getHeader();
+    assertThat(header.getGasLimit()).isEqualTo(0x2fefd8);
+    assertThat(header.getGasUsed()).isZero();
+    assertThat(header.getNumber()).isZero();
+    assertThat(header.getReceiptsRoot())
+        .isEqualTo(
+            Hash.fromHexString(
+                "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"));
+    assertThat(header.getTransactionsRoot()).isEqualTo(Hash.EMPTY_TRIE_HASH);
+    assertThat(header.getOmmersHash())
+        .isEqualTo(
+            Hash.fromHexString(
+                "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347"));
+    assertThat(header.getExtraData()).isEqualTo(Bytes.EMPTY);
+    assertThat(header.getParentHash()).isEqualTo(Hash.ZERO);
+
+    final MutableWorldState worldState = InMemoryKeyValueStorageProvider.createInMemoryWorldState();
+    genesisState.writeStateTo(worldState);
+    Hash computedStateRoot = worldState.rootHash();
+    assertThat(computedStateRoot).isEqualTo(header.getStateRoot());
+    assertThat(header.getStateRoot())
+        .isEqualTo(
+            Hash.fromHexString(
+                "0x7f5cfe1375a61009a22d24512d18035bc8f855129452fa9c6a6be2ef4e9da7db"));
+    final Account first =
+        worldState.get(Address.fromHexString("0000000000000000000000000000000000000100"));
+    final Account last =
+        worldState.get(Address.fromHexString("fb289e2b2b65fb63299a682d000744671c50417b"));
+    assertThat(first).isNotNull();
+    assertThat(first.getBalance().toLong()).isZero();
+    assertThat(first.getCode())
+        .isEqualTo(Bytes.fromHexString("0x5f804955600180495560028049556003804955"));
+    assertThat(last).isNotNull();
+    Wei lastBalance = last.getBalance();
+    assertThat(lastBalance).isEqualTo(Wei.fromHexString("0x123450000000000000000"));
+
+    assertThat(header.getRequestsHash().isPresent()).isTrue();
+    assertThat(header.getRequestsHash().get())
+        .isEqualTo(
+            Hash.fromHexString(
+                "0x6036c41849da9c076ed79654d434017387a88fb833c2856b32e18218b3341c5f"));
+    assertThat(header.getTargetBlobsPerBlock().isPresent()).isTrue();
+    assertThat(header.getTargetBlobsPerBlock().get()).isEqualTo(UInt64.ONE);
+
+    assertThat(header.getHash())
+        .isEqualTo(
+            Hash.fromHexString(
+                "0xdbc64edecb3a432e48cbd270b4a248ffc611b5f3dd666c8a10d546672cae17bd"));
+  }
+
+  @Test
+  void dryRunDetector() {
+    assertThat(true)
+        .withFailMessage("This test is here so gradle --dry-run executes this class")
+        .isTrue();
   }
 }

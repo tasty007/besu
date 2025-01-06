@@ -11,13 +11,12 @@
  * specific language governing permissions and limitations under the License.
  *
  * SPDX-License-Identifier: Apache-2.0
- *
  */
 package org.hyperledger.besu.tests.acceptance.plugins;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import org.hyperledger.besu.tests.acceptance.dsl.AcceptanceTestBaseJunit5;
+import org.hyperledger.besu.tests.acceptance.dsl.AcceptanceTestBase;
 import org.hyperledger.besu.tests.acceptance.dsl.node.BesuNode;
 
 import java.io.File;
@@ -32,8 +31,10 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.DisabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 
-public class BadCLIOptionsPluginTest extends AcceptanceTestBaseJunit5 {
+public class BadCLIOptionsPluginTest extends AcceptanceTestBase {
   private BesuNode node;
 
   @BeforeEach
@@ -52,6 +53,7 @@ public class BadCLIOptionsPluginTest extends AcceptanceTestBaseJunit5 {
   }
 
   @Test
+  @DisabledOnOs(OS.MAC)
   public void shouldNotRegister() {
     final Path registrationFile = node.homeDirectory().resolve("plugins/badCLIOptions.init");
     waitForFile(registrationFile);
@@ -59,6 +61,7 @@ public class BadCLIOptionsPluginTest extends AcceptanceTestBaseJunit5 {
   }
 
   @Test
+  @DisabledOnOs(OS.MAC)
   public void shouldNotStart() {
     // depend on the good PicoCLIOptions to tell us when it should be up
     final Path registrationFile = node.homeDirectory().resolve("plugins/pluginLifecycle.started");

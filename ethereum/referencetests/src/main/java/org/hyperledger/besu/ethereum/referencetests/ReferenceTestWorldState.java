@@ -11,12 +11,12 @@
  * specific language governing permissions and limitations under the License.
  *
  * SPDX-License-Identifier: Apache-2.0
- *
  */
 package org.hyperledger.besu.ethereum.referencetests;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
@@ -35,6 +35,7 @@ import org.apache.tuweni.units.bigints.UInt256;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public interface ReferenceTestWorldState extends MutableWorldState {
 
+  @JsonIgnoreProperties(ignoreUnknown = true)
   class AccountMock {
     private final long nonce;
     private final Wei balance;
@@ -89,6 +90,8 @@ public interface ReferenceTestWorldState extends MutableWorldState {
   }
 
   ReferenceTestWorldState copy();
+
+  void processExtraStateStorageFormatValidation(final BlockHeader blockHeader);
 
   @JsonCreator
   static ReferenceTestWorldState create(final Map<String, AccountMock> accounts) {

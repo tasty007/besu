@@ -1,5 +1,5 @@
 /*
- * Copyright contributors to Hyperledger Besu
+ * Copyright contributors to Hyperledger Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -22,11 +22,11 @@ public class FastImportBlocksPercentageCalculationTest {
 
   @Test
   public void blocksPercent_calculations() {
-    assertThat(FastImportBlocksStep.getBlocksPercent(1, 1)).isEqualByComparingTo(100l);
-    assertThat(FastImportBlocksStep.getBlocksPercent(1, 100)).isEqualByComparingTo(1l);
-    assertThat(FastImportBlocksStep.getBlocksPercent(0, 100)).isEqualByComparingTo(0l);
-    assertThat(FastImportBlocksStep.getBlocksPercent(99, 0)).isEqualByComparingTo(0l);
-    assertThat(FastImportBlocksStep.getBlocksPercent(1, 1000)).isEqualByComparingTo(0l);
-    assertThat(FastImportBlocksStep.getBlocksPercent(1, 10000)).isEqualByComparingTo(0l);
+    assertThat(ImportBlocksStep.getBlocksPercent(1, 1)).isEqualByComparingTo(100l);
+    assertThat(ImportBlocksStep.getBlocksPercent(1, 100)).isEqualByComparingTo(1l);
+    assertThat(ImportBlocksStep.getBlocksPercent(0, 100)).isEqualByComparingTo(0l);
+    assertThat(ImportBlocksStep.getBlocksPercent(99, 0)).isEqualByComparingTo(0l);
+    assertThat(ImportBlocksStep.getBlocksPercent(1, 1000)).isEqualByComparingTo(0l);
+    assertThat(ImportBlocksStep.getBlocksPercent(1, 10000)).isEqualByComparingTo(0l);
   }
 }

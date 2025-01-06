@@ -1,5 +1,5 @@
 /*
- * Copyright Hyperledger Besu Contributors.
+ * Copyright contributors to Hyperledger Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -39,7 +39,7 @@ public class OptimisticTransactionDBRocksDBColumnarKeyValueStorageTest
         new RocksDBConfigurationBuilder()
             .databaseDir(Files.createTempDirectory("segmentedStore"))
             .build(),
-        Arrays.asList(TestSegment.FOO, TestSegment.BAR),
+        Arrays.asList(TestSegment.DEFAULT, TestSegment.FOO, TestSegment.BAR),
         List.of(),
         new NoOpMetricsSystem(),
         RocksDBMetricsFactory.PUBLIC_ROCKS_DB_METRICS);

@@ -1,5 +1,5 @@
 /*
- * Copyright Hyperledger Besu Contributors.
+ * Copyright contributors to Hyperledger Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -19,10 +19,13 @@ import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import org.hyperledger.besu.config.GenesisConfigFile;
+import org.hyperledger.besu.config.GenesisConfig;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.chain.BadBlockManager;
+import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.PrivacyParameters;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
+import org.hyperledger.besu.ethereum.eth.transactions.BlobCache;
 import org.hyperledger.besu.ethereum.eth.transactions.ImmutableTransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactions;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionBroadcaster;
@@ -34,30 +37,35 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolScheduleBuilder;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpecAdapters;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
+import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.testutil.TestClock;
 import org.hyperledger.besu.util.number.Fraction;
 
 import java.time.ZoneId;
+import java.util.Optional;
 import java.util.function.Function;
 
 public class LegacyFeeMarketBlockTransactionSelectorTest
     extends AbstractBlockTransactionSelectorTest {
 
   @Override
-  protected GenesisConfigFile getGenesisConfigFile() {
-    return GenesisConfigFile.genesisFileFromResources(
-        "/block-transaction-selector/gas-price-genesis.json");
+  protected GenesisConfig getGenesisConfig() {
+    return GenesisConfig.fromResource("/block-transaction-selector/gas-price-genesis.json");
   }
 
   @Override
   protected ProtocolSchedule createProtocolSchedule() {
     return new ProtocolScheduleBuilder(
-            genesisConfigFile.getConfigOptions(),
-            CHAIN_ID,
+            genesisConfig.getConfigOptions(),
+            Optional.of(CHAIN_ID),
             ProtocolSpecAdapters.create(0, Function.identity()),
             new PrivacyParameters(),
             false,
-            EvmConfiguration.DEFAULT)
+            EvmConfiguration.DEFAULT,
+            MiningConfiguration.MINING_DISABLED,
+            new BadBlockManager(),
+            false,
+            new NoOpMetricsSystem())
         .createProtocolSchedule();
   }
 
@@ -89,7 +97,7 @@ public class LegacyFeeMarketBlockTransactionSelectorTest
             ethContext,
             new TransactionPoolMetrics(metricsSystem),
             poolConf,
-            null);
+            new BlobCache());
     transactionPool.setEnabled();
     return transactionPool;
   }

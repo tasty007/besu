@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.p2p.discovery;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import static java.util.Arrays.asList;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -44,6 +45,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -128,7 +130,7 @@ public class PeerDiscoveryTestHelper {
   }
 
   /**
-   * Starts multiple discovery agents with the provided boostrap peers.
+   * Starts multiple discovery agents with the provided bootstrap peers.
    *
    * @param count the number of agents to start
    * @param bootstrapPeers the list of bootstrap peers
@@ -161,6 +163,14 @@ public class PeerDiscoveryTestHelper {
 
   public MockPeerDiscoveryAgent startDiscoveryAgent(final DiscoveryPeer... bootstrapPeers) {
     final AgentBuilder agentBuilder = agentBuilder().bootstrapPeers(bootstrapPeers);
+
+    return startDiscoveryAgent(agentBuilder);
+  }
+
+  public MockPeerDiscoveryAgent startDiscoveryAgent(
+      final String advertisedHost, final DiscoveryPeer... bootstrapPeers) {
+    final AgentBuilder agentBuilder =
+        agentBuilder().bootstrapPeers(bootstrapPeers).advertisedHost(advertisedHost);
 
     return startDiscoveryAgent(agentBuilder);
   }
@@ -287,20 +297,18 @@ public class PeerDiscoveryTestHelper {
       config.setAdvertisedHost(advertisedHost);
       config.setBindPort(port);
       config.setActive(active);
+      config.setFilterOnEnrForkId(false);
 
       final ForkIdManager mockForkIdManager = mock(ForkIdManager.class);
       final ForkId forkId = new ForkId(Bytes.EMPTY, Bytes.EMPTY);
       when(mockForkIdManager.getForkIdForChainHead()).thenReturn(forkId);
       when(mockForkIdManager.peerCheck(forkId)).thenReturn(true);
+      final RlpxAgent rlpxAgent = mock(RlpxAgent.class);
+      when(rlpxAgent.connect(any()))
+          .thenReturn(CompletableFuture.failedFuture(new RuntimeException()));
       final MockPeerDiscoveryAgent mockPeerDiscoveryAgent =
           new MockPeerDiscoveryAgent(
-              nodeKey,
-              config,
-              peerPermissions,
-              agents,
-              natService,
-              mockForkIdManager,
-              mock(RlpxAgent.class));
+              nodeKey, config, peerPermissions, agents, natService, mockForkIdManager, rlpxAgent);
       mockPeerDiscoveryAgent.getAdvertisedPeer().ifPresent(peer -> peer.setNodeRecord(nodeRecord));
 
       return mockPeerDiscoveryAgent;

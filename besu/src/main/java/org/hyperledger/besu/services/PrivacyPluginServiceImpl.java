@@ -24,6 +24,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /** The Privacy plugin service implementation. */
+@Deprecated(since = "24.12.0")
 public class PrivacyPluginServiceImpl implements PrivacyPluginService {
   private static final Logger LOG = LoggerFactory.getLogger(PrivacyPluginServiceImpl.class);
 
@@ -33,6 +34,9 @@ public class PrivacyPluginServiceImpl implements PrivacyPluginService {
   private PrivacyGroupAuthProvider privacyGroupAuthProvider =
       (privacyGroupId, privacyUserId, blockNumber) -> true;
   private PrivacyGroupGenesisProvider privacyGroupGenesisProvider;
+
+  /** Default Constructor. */
+  public PrivacyPluginServiceImpl() {}
 
   @Override
   public void setPayloadProvider(final PrivacyPluginPayloadProvider privacyPluginPayloadProvider) {

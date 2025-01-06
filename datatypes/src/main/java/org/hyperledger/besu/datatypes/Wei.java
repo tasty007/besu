@@ -1,5 +1,5 @@
 /*
- * Copyright contributors to Hyperledger Besu
+ * Copyright contributors to Hyperledger Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -16,6 +16,7 @@ package org.hyperledger.besu.datatypes;
 
 import java.math.BigInteger;
 import java.util.Arrays;
+import java.util.Locale;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.BaseUInt256Value;
@@ -160,11 +161,31 @@ public final class Wei extends BaseUInt256Value<Wei> implements Quantity {
    * @return the string
    */
   public String toHumanReadableString() {
+    return toHumanReadableStringWithPadding(1);
+  }
+
+  /**
+   * Wei to human-readable string, with padding
+   *
+   * @return the string
+   */
+  public String toHumanReadablePaddedString() {
+    return toHumanReadableStringWithPadding(6);
+  }
+
+  /**
+   * Returns a human-readable String, the number of returned characters depends on the width
+   * parameter
+   *
+   * @param width the number of digits to use
+   * @return a human-readable String
+   */
+  private String toHumanReadableStringWithPadding(final int width) {
     final BigInteger amount = toBigInteger();
     final int numOfDigits = amount.toString().length();
     final Unit preferredUnit = Unit.getPreferred(numOfDigits);
     final double res = amount.doubleValue() / preferredUnit.divisor;
-    return String.format("%1." + preferredUnit.decimals + "f %s", res, preferredUnit);
+    return String.format("%" + width + "." + preferredUnit.decimals + "f %s", res, preferredUnit);
   }
 
   /** The enum Unit. */
@@ -194,8 +215,10 @@ public final class Wei extends BaseUInt256Value<Wei> implements Quantity {
 
     /** The Pow. */
     final int pow;
+
     /** The Divisor. */
     final double divisor;
+
     /** The Decimals. */
     final int decimals;
 
@@ -224,7 +247,7 @@ public final class Wei extends BaseUInt256Value<Wei> implements Quantity {
 
     @Override
     public String toString() {
-      return name().toLowerCase();
+      return name().toLowerCase(Locale.ROOT);
     }
   }
 }

@@ -11,12 +11,11 @@
  * specific language governing permissions and limitations under the License.
  *
  * SPDX-License-Identifier: Apache-2.0
- *
  */
 package org.hyperledger.besu.tests.acceptance.crypto;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assumptions.assumeThat;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import org.hyperledger.besu.crypto.KeyPair;
 import org.hyperledger.besu.crypto.SECP256R1;
@@ -67,6 +66,12 @@ public class SECP256R1AcceptanceTest extends AcceptanceTestBase {
         besu.createNodeWithNonDefaultSignatureAlgorithm(
             "otherNode", GENESIS_FILE, otherNodeKeyPair, List.of(minerNode));
     noDiscoveryCluster.addNode(otherNode);
+
+    minerNode.verify(net.awaitPeerCount(1));
+    otherNode.verify(net.awaitPeerCount(1));
+
+    final var minerChainHead = minerNode.execute(ethTransactions.block());
+    otherNode.verify(blockchain.minimumHeight(minerChainHead.getNumber().longValue()));
   }
 
   @Test
@@ -75,7 +80,7 @@ public class SECP256R1AcceptanceTest extends AcceptanceTestBase {
     // the signature algorithm instance to SECP256R1 as it could influence other tests running at
     // the same time. So we only execute the test when ProcessBesuNodeRunner is used, as there is
     // not conflict because we use separate processes.
-    assumeThat(BesuNodeRunner.isProcessBesuNodeRunner()).isTrue();
+    assumeTrue(BesuNodeRunner.isProcessBesuNodeRunner());
 
     minerNode.verify(net.awaitPeerCount(1));
     otherNode.verify(net.awaitPeerCount(1));

@@ -14,11 +14,9 @@
  */
 package org.hyperledger.besu.ethereum;
 
+import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
-import org.hyperledger.besu.ethereum.core.Synchronizer;
-import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
-import org.hyperledger.besu.plugin.services.txselection.PluginTransactionSelectorFactory;
 
 import java.util.Optional;
 
@@ -31,69 +29,76 @@ public class ProtocolContext {
   private final MutableBlockchain blockchain;
   private final WorldStateArchive worldStateArchive;
   private final ConsensusContext consensusContext;
-  private final Optional<PluginTransactionSelectorFactory> transactionSelectorFactory;
+  private final BadBlockManager badBlockManager;
 
-  private Optional<Synchronizer> synchronizer;
-
-  public ProtocolContext(
-      final MutableBlockchain blockchain,
-      final WorldStateArchive worldStateArchive,
-      final ConsensusContext consensusContext) {
-    this(blockchain, worldStateArchive, consensusContext, Optional.empty());
-  }
-
+  /**
+   * Constructs a new ProtocolContext with the given blockchain, world state archive, consensus
+   * context, and bad block manager.
+   *
+   * @param blockchain the blockchain of the protocol context
+   * @param worldStateArchive the world state archive of the protocol context
+   * @param consensusContext the consensus context
+   * @param badBlockManager the bad block manager of the protocol context
+   */
   public ProtocolContext(
       final MutableBlockchain blockchain,
       final WorldStateArchive worldStateArchive,
       final ConsensusContext consensusContext,
-      final Optional<PluginTransactionSelectorFactory> transactionSelectorFactory) {
+      final BadBlockManager badBlockManager) {
     this.blockchain = blockchain;
     this.worldStateArchive = worldStateArchive;
     this.consensusContext = consensusContext;
-    this.synchronizer = Optional.empty();
-    this.transactionSelectorFactory = transactionSelectorFactory;
+    this.badBlockManager = badBlockManager;
   }
 
-  public static ProtocolContext init(
-      final MutableBlockchain blockchain,
-      final WorldStateArchive worldStateArchive,
-      final ProtocolSchedule protocolSchedule,
-      final ConsensusContextFactory consensusContextFactory,
-      final Optional<PluginTransactionSelectorFactory> transactionSelectorFactory) {
-    return new ProtocolContext(
-        blockchain,
-        worldStateArchive,
-        consensusContextFactory.create(blockchain, worldStateArchive, protocolSchedule),
-        transactionSelectorFactory);
-  }
-
-  public Optional<Synchronizer> getSynchronizer() {
-    return synchronizer;
-  }
-
-  public void setSynchronizer(final Optional<Synchronizer> synchronizer) {
-    this.synchronizer = synchronizer;
-  }
-
+  /**
+   * Gets the blockchain of the protocol context.
+   *
+   * @return the blockchain of the protocol context
+   */
   public MutableBlockchain getBlockchain() {
     return blockchain;
   }
 
+  /**
+   * Gets the world state archive of the protocol context.
+   *
+   * @return the world state archive of the protocol context
+   */
   public WorldStateArchive getWorldStateArchive() {
     return worldStateArchive;
   }
 
+  /**
+   * Gets the bad block manager of the protocol context.
+   *
+   * @return the bad block manager of the protocol context
+   */
+  public BadBlockManager getBadBlockManager() {
+    return badBlockManager;
+  }
+
+  /**
+   * Gets the consensus context of the protocol context.
+   *
+   * @param <C> the type of the consensus context
+   * @param klass the klass
+   * @return the consensus context of the protocol context
+   */
   public <C extends ConsensusContext> C getConsensusContext(final Class<C> klass) {
     return consensusContext.as(klass);
   }
 
+  /**
+   * Gets the safe consensus context of the protocol context.
+   *
+   * @param <C> the type of the consensus context
+   * @param klass the klass
+   * @return the consensus context of the protocol context
+   */
   public <C extends ConsensusContext> Optional<C> safeConsensusContext(final Class<C> klass) {
     return Optional.ofNullable(consensusContext)
         .filter(c -> klass.isAssignableFrom(c.getClass()))
         .map(klass::cast);
-  }
-
-  public Optional<PluginTransactionSelectorFactory> getTransactionSelectorFactory() {
-    return transactionSelectorFactory;
   }
 }

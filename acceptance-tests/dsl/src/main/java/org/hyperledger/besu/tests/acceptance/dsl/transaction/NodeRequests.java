@@ -21,22 +21,21 @@ import org.hyperledger.besu.tests.acceptance.dsl.transaction.login.LoginRequestF
 import org.hyperledger.besu.tests.acceptance.dsl.transaction.miner.MinerRequestFactory;
 import org.hyperledger.besu.tests.acceptance.dsl.transaction.net.CustomRequestFactory;
 import org.hyperledger.besu.tests.acceptance.dsl.transaction.perm.PermissioningJsonRpcRequestFactory;
-import org.hyperledger.besu.tests.acceptance.dsl.transaction.privacy.PrivacyRequestFactory;
 import org.hyperledger.besu.tests.acceptance.dsl.transaction.txpool.TxPoolRequestFactory;
 
 import java.util.Optional;
 
 import org.web3j.protocol.Web3j;
+import org.web3j.protocol.Web3jService;
 import org.web3j.protocol.websocket.WebSocketService;
 
 public class NodeRequests {
-
+  private final Web3jService web3jService;
   private final Web3j netEth;
   private final CliqueRequestFactory clique;
   private final BftRequestFactory bft;
   private final PermissioningJsonRpcRequestFactory perm;
   private final AdminRequestFactory admin;
-  private final PrivacyRequestFactory privacy;
   private final CustomRequestFactory custom;
   private final Optional<WebSocketService> websocketService;
   private final LoginRequestFactory login;
@@ -44,23 +43,23 @@ public class NodeRequests {
   private final TxPoolRequestFactory txPool;
 
   public NodeRequests(
+      final Web3jService web3jService,
       final Web3j netEth,
       final CliqueRequestFactory clique,
       final BftRequestFactory bft,
       final PermissioningJsonRpcRequestFactory perm,
       final AdminRequestFactory admin,
-      final PrivacyRequestFactory privacy,
       final CustomRequestFactory custom,
       final MinerRequestFactory miner,
       final TxPoolRequestFactory txPool,
       final Optional<WebSocketService> websocketService,
       final LoginRequestFactory login) {
+    this.web3jService = web3jService;
     this.netEth = netEth;
     this.clique = clique;
     this.bft = bft;
     this.perm = perm;
     this.admin = admin;
-    this.privacy = privacy;
     this.custom = custom;
     this.miner = miner;
     this.txPool = txPool;
@@ -96,10 +95,6 @@ public class NodeRequests {
     return custom;
   }
 
-  public PrivacyRequestFactory privacy() {
-    return privacy;
-  }
-
   public LoginRequestFactory login() {
     return login;
   }
@@ -115,5 +110,9 @@ public class NodeRequests {
   public void shutdown() {
     netEth.shutdown();
     websocketService.ifPresent(WebSocketService::close);
+  }
+
+  public Web3jService getWeb3jService() {
+    return web3jService;
   }
 }

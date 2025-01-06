@@ -11,10 +11,11 @@
  * specific language governing permissions and limitations under the License.
  *
  * SPDX-License-Identifier: Apache-2.0
- *
  */
-
 package org.hyperledger.besu.ethereum.worldstate;
+
+import org.hyperledger.besu.ethereum.worldstate.DiffBasedSubStorageConfiguration.DiffBasedUnstable;
+import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 
 import org.immutables.value.Value;
 
@@ -22,48 +23,40 @@ import org.immutables.value.Value;
 @Value.Enclosing
 public interface DataStorageConfiguration {
 
-  long DEFAULT_BONSAI_MAX_LAYERS_TO_LOAD = 512;
+  boolean DEFAULT_RECEIPT_COMPACTION_ENABLED = true;
 
   DataStorageConfiguration DEFAULT_CONFIG =
       ImmutableDataStorageConfiguration.builder()
+          .dataStorageFormat(DataStorageFormat.BONSAI)
+          .diffBasedSubStorageConfiguration(DiffBasedSubStorageConfiguration.DEFAULT)
+          .build();
+
+  DataStorageConfiguration DEFAULT_BONSAI_CONFIG = DEFAULT_CONFIG;
+
+  DataStorageConfiguration DEFAULT_BONSAI_PARTIAL_DB_CONFIG =
+      ImmutableDataStorageConfiguration.builder()
+          .dataStorageFormat(DataStorageFormat.BONSAI)
+          .diffBasedSubStorageConfiguration(
+              ImmutableDiffBasedSubStorageConfiguration.builder()
+                  .unstable(DiffBasedUnstable.PARTIAL_MODE)
+                  .build())
+          .build();
+
+  DataStorageConfiguration DEFAULT_FOREST_CONFIG =
+      ImmutableDataStorageConfiguration.builder()
           .dataStorageFormat(DataStorageFormat.FOREST)
-          .bonsaiMaxLayersToLoad(DEFAULT_BONSAI_MAX_LAYERS_TO_LOAD)
-          .unstable(Unstable.DEFAULT)
+          .diffBasedSubStorageConfiguration(DiffBasedSubStorageConfiguration.DISABLED)
           .build();
 
   DataStorageFormat getDataStorageFormat();
 
-  Long getBonsaiMaxLayersToLoad();
-
   @Value.Default
-  default Unstable getUnstable() {
-    return Unstable.DEFAULT;
+  default DiffBasedSubStorageConfiguration getDiffBasedSubStorageConfiguration() {
+    return DiffBasedSubStorageConfiguration.DEFAULT;
   }
 
-  @Value.Immutable
-  interface Unstable {
-
-    boolean DEFAULT_BONSAI_TRIE_LOG_PRUNING_ENABLED = false;
-    long DEFAULT_BONSAI_TRIE_LOG_RETENTION_THRESHOLD = 512L;
-    long MINIMUM_BONSAI_TRIE_LOG_RETENTION_THRESHOLD = DEFAULT_BONSAI_TRIE_LOG_RETENTION_THRESHOLD;
-    int DEFAULT_BONSAI_TRIE_LOG_PRUNING_LIMIT = 30_000;
-
-    DataStorageConfiguration.Unstable DEFAULT =
-        ImmutableDataStorageConfiguration.Unstable.builder().build();
-
-    @Value.Default
-    default boolean getBonsaiTrieLogPruningEnabled() {
-      return DEFAULT_BONSAI_TRIE_LOG_PRUNING_ENABLED;
-    }
-
-    @Value.Default
-    default long getBonsaiTrieLogRetentionThreshold() {
-      return DEFAULT_BONSAI_TRIE_LOG_RETENTION_THRESHOLD;
-    }
-
-    @Value.Default
-    default int getBonsaiTrieLogPruningLimit() {
-      return DEFAULT_BONSAI_TRIE_LOG_PRUNING_LIMIT;
-    }
+  @Value.Default
+  default boolean getReceiptCompactionEnabled() {
+    return DEFAULT_RECEIPT_COMPACTION_ENABLED;
   }
 }

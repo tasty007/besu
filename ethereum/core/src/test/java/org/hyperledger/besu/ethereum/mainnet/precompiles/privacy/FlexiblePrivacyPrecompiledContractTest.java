@@ -49,8 +49,8 @@ import org.hyperledger.besu.ethereum.privacy.storage.PrivateStateStorage;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
-import org.hyperledger.besu.ethereum.vm.BlockHashLookup;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
+import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.SpuriousDragonGasCalculator;
 import org.hyperledger.besu.evm.log.Log;
@@ -383,7 +383,8 @@ public class FlexiblePrivacyPrecompiledContractTest {
             enclave,
             worldStateArchive,
             privateStateRootResolver,
-            privateStateGenesisAllocator);
+            privateStateGenesisAllocator,
+            false);
 
     contract.setPrivateTransactionProcessor(
         mockPrivateTxProcessor(
@@ -427,6 +428,7 @@ public class FlexiblePrivacyPrecompiledContractTest {
         enclave,
         worldStateArchive,
         privateStateRootResolver,
-        privateStateGenesisAllocator);
+        privateStateGenesisAllocator,
+        false);
   }
 }

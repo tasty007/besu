@@ -12,7 +12,6 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-
 package org.hyperledger.besu.consensus.common.bft;
 
 import org.hyperledger.besu.ethereum.eth.manager.MonitoredExecutors;
@@ -79,7 +78,7 @@ public class BftExecutors {
 
   /** Start. */
   public synchronized void start() {
-    if (state != State.IDLE) {
+    if (state != State.IDLE && state != State.STOPPED) {
       // Nothing to do
       return;
     }

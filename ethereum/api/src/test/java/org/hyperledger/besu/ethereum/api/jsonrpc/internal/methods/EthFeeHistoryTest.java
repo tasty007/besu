@@ -26,6 +26,7 @@ import static org.mockito.Mockito.when;
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeCoordinator;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.GasLimitCalculator;
 import org.hyperledger.besu.ethereum.api.ApiConfiguration;
 import org.hyperledger.besu.ethereum.api.ImmutableApiConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
@@ -38,6 +39,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.FeeHistory;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.ImmutableFeeHistory;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.ImmutableFeeHistoryResult;
+import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.blockcreation.MiningCoordinator;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
@@ -47,9 +49,12 @@ import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
+import org.hyperledger.besu.ethereum.mainnet.CancunTargetingGasLimitCalculator;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
+import org.hyperledger.besu.evm.gascalculator.CancunGasCalculator;
+import org.hyperledger.besu.evm.gascalculator.LondonGasCalculator;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -65,6 +70,7 @@ import org.junit.jupiter.api.Test;
 
 public class EthFeeHistoryTest {
   final BlockDataGenerator gen = new BlockDataGenerator();
+  private BlockchainQueries blockchainQueries;
   private MutableBlockchain blockchain;
   private EthFeeHistory method;
   private ProtocolSchedule protocolSchedule;
@@ -78,21 +84,21 @@ public class EthFeeHistoryTest {
     gen.blockSequence(genesisBlock, 10)
         .forEach(block -> blockchain.appendBlock(block, gen.receipts(block)));
     miningCoordinator = mock(MergeCoordinator.class);
-    when(miningCoordinator.getMinPriorityFeePerGas()).thenReturn(Wei.ONE);
+
+    blockchainQueries = mockBlockchainQueries(blockchain, Wei.of(7));
+
+    mockFork();
 
     method =
         new EthFeeHistory(
             protocolSchedule,
-            blockchain,
+            blockchainQueries,
             miningCoordinator,
             ImmutableApiConfiguration.builder().build());
   }
 
   @Test
   public void params() {
-    final ProtocolSpec londonSpec = mock(ProtocolSpec.class);
-    when(londonSpec.getFeeMarket()).thenReturn(FeeMarket.london(5));
-    when(protocolSchedule.getForNextBlockHeader(any(), anyLong())).thenReturn(londonSpec);
     // should fail because no required params given
     assertThatThrownBy(this::feeHistoryRequest).isInstanceOf(InvalidJsonRpcParameters.class);
     // should fail because newestBlock not given
@@ -110,12 +116,7 @@ public class EthFeeHistoryTest {
 
   @Test
   public void allFieldsPresentForLatestBlock() {
-    final ProtocolSpec londonSpec = mock(ProtocolSpec.class);
-    when(londonSpec.getFeeMarket()).thenReturn(FeeMarket.london(5));
-    when(protocolSchedule.getForNextBlockHeader(
-            eq(blockchain.getChainHeadHeader()),
-            eq(blockchain.getChainHeadHeader().getTimestamp())))
-        .thenReturn(londonSpec);
+
     final Object latest =
         ((JsonRpcSuccessResponse) feeHistoryRequest("0x1", "latest", new double[] {100.0}))
             .getResult();
@@ -126,6 +127,8 @@ public class EthFeeHistoryTest {
                     .oldestBlock(10)
                     .baseFeePerGas(List.of(Wei.of(25496L), Wei.of(28683L)))
                     .gasUsedRatio(List.of(0.9999999992132459))
+                    .baseFeePerBlobGas(List.of(Wei.of(0), Wei.of(0)))
+                    .blobGasUsedRatio(List.of(0.0))
                     .reward(List.of(List.of(Wei.of(1524763764L))))
                     .build()));
   }
@@ -139,11 +142,16 @@ public class EthFeeHistoryTest {
     Block block = mock(Block.class);
     Blockchain blockchain = mockBlockchainTransactionsWithPriorityFee(block);
 
+    final var blockchainQueries = mockBlockchainQueries(blockchain, Wei.of(7));
+
     EthFeeHistory ethFeeHistory =
         new EthFeeHistory(
-            null, blockchain, miningCoordinator, ImmutableApiConfiguration.builder().build());
+            null,
+            blockchainQueries,
+            miningCoordinator,
+            ImmutableApiConfiguration.builder().build());
 
-    List<Wei> rewards = ethFeeHistory.computeRewards(rewardPercentiles, block);
+    List<Wei> rewards = ethFeeHistory.computeRewards(rewardPercentiles, block, Wei.of(7));
 
     // Define the expected rewards for each percentile
     // The expected rewards match the fees of the transactions at each percentile in the
@@ -179,14 +187,51 @@ public class EthFeeHistoryTest {
             .upperBoundGasAndPriorityFeeCoefficient(500L)
             .build(); // Max reward = Wei.One * 500L / 100 = 5.0
 
-    EthFeeHistory ethFeeHistory =
-        new EthFeeHistory(null, blockchain, miningCoordinator, apiConfiguration);
+    final var blockchainQueries = mockBlockchainQueries(blockchain, Wei.of(7));
+    when(miningCoordinator.getMinPriorityFeePerGas()).thenReturn(Wei.ONE);
 
-    List<Wei> rewards = ethFeeHistory.computeRewards(rewardPercentiles, block);
+    EthFeeHistory ethFeeHistory =
+        new EthFeeHistory(null, blockchainQueries, miningCoordinator, apiConfiguration);
+
+    List<Wei> rewards = ethFeeHistory.computeRewards(rewardPercentiles, block, Wei.of(7));
 
     // Define the expected bounded rewards for each percentile
     List<Wei> expectedBoundedRewards = Stream.of(2, 2, 2, 4, 5, 5, 5, 5, 5).map(Wei::of).toList();
-    assertThat(expectedBoundedRewards).isEqualTo(rewards);
+    assertThat(rewards).isEqualTo(expectedBoundedRewards);
+  }
+
+  @Test
+  public void shouldApplyLowerBoundRewardsCorrectly() {
+    // This test checks that the rewards are correctly bounded by the lower and upper limits,
+    // when the calculated lower bound for the priority fee is greater than the configured one.
+    // Configured minPriorityFeePerGas is 0 wei, minGasPrice is 10 wei and baseFee is 8 wei,
+    // so for a tx to be mined the minPriorityFeePerGas is raised to 2 wei before applying the
+    // coefficients.
+
+    List<Double> rewardPercentiles =
+        Arrays.asList(0.0, 5.0, 10.0, 27.50, 31.0, 59.0, 60.0, 61.0, 100.0);
+
+    Block block = mock(Block.class);
+    Blockchain blockchain = mockBlockchainTransactionsWithPriorityFee(block);
+
+    ApiConfiguration apiConfiguration =
+        ImmutableApiConfiguration.builder()
+            .isGasAndPriorityFeeLimitingEnabled(true)
+            .lowerBoundGasAndPriorityFeeCoefficient(200L) // Min reward = 2 * 200L / 100 = 4.0
+            .upperBoundGasAndPriorityFeeCoefficient(300L)
+            .build(); // Max reward = 2 * 300L / 100 = 6.0
+
+    final var blockchainQueries = mockBlockchainQueries(blockchain, Wei.of(10));
+    when(miningCoordinator.getMinPriorityFeePerGas()).thenReturn(Wei.ZERO);
+
+    EthFeeHistory ethFeeHistory =
+        new EthFeeHistory(null, blockchainQueries, miningCoordinator, apiConfiguration);
+
+    List<Wei> rewards = ethFeeHistory.computeRewards(rewardPercentiles, block, Wei.of(8));
+
+    // Define the expected bounded rewards for each percentile
+    List<Wei> expectedBoundedRewards = Stream.of(4, 4, 4, 4, 5, 6, 6, 6, 6).map(Wei::of).toList();
+    assertThat(rewards).isEqualTo(expectedBoundedRewards);
   }
 
   private Blockchain mockBlockchainTransactionsWithPriorityFee(final Block block) {
@@ -233,7 +278,7 @@ public class EthFeeHistoryTest {
     assertThat(
             ((JsonRpcErrorResponse) feeHistoryRequest("0x2", "11", new double[] {100.0}))
                 .getErrorType())
-        .isEqualTo(RpcErrorType.INVALID_PARAMS);
+        .isEqualTo(RpcErrorType.INVALID_BLOCK_NUMBER_PARAMS);
   }
 
   @Test
@@ -241,38 +286,28 @@ public class EthFeeHistoryTest {
     assertThat(
             ((JsonRpcErrorResponse) feeHistoryRequest("0x0", "latest", new double[] {100.0}))
                 .getErrorType())
-        .isEqualTo(RpcErrorType.INVALID_PARAMS);
+        .isEqualTo(RpcErrorType.INVALID_BLOCK_COUNT_PARAMS);
     assertThat(
             ((JsonRpcErrorResponse) feeHistoryRequest("0x401", "latest", new double[] {100.0}))
                 .getErrorType())
-        .isEqualTo(RpcErrorType.INVALID_PARAMS);
+        .isEqualTo(RpcErrorType.INVALID_BLOCK_COUNT_PARAMS);
   }
 
   @Test
   public void doesntGoPastChainHeadWithHighBlockCount() {
-    final ProtocolSpec londonSpec = mock(ProtocolSpec.class);
-    when(londonSpec.getFeeMarket()).thenReturn(FeeMarket.london(5));
-    when(protocolSchedule.getForNextBlockHeader(
-            eq(blockchain.getChainHeadHeader()),
-            eq(blockchain.getChainHeadHeader().getTimestamp())))
-        .thenReturn(londonSpec);
     final FeeHistory.FeeHistoryResult result =
         (ImmutableFeeHistoryResult)
             ((JsonRpcSuccessResponse) feeHistoryRequest("0x14", "latest")).getResult();
     assertThat(Long.decode(result.getOldestBlock())).isEqualTo(0);
     assertThat(result.getBaseFeePerGas()).hasSize(12);
     assertThat(result.getGasUsedRatio()).hasSize(11);
+    assertThat(result.getBaseFeePerBlobGas()).hasSize(12);
+    assertThat(result.getBlobGasUsedRatio()).hasSize(11);
     assertThat(result.getReward()).isNull();
   }
 
   @Test
   public void feeValuesAreInTheBlockCountAndHighestBlock() {
-    final ProtocolSpec londonSpec = mock(ProtocolSpec.class);
-    when(londonSpec.getFeeMarket()).thenReturn(FeeMarket.london(5));
-    when(protocolSchedule.getForNextBlockHeader(
-            eq(blockchain.getChainHeadHeader()),
-            eq(blockchain.getChainHeadHeader().getTimestamp())))
-        .thenReturn(londonSpec);
     double[] percentile = new double[] {100.0};
 
     final Object ninth =
@@ -286,12 +321,6 @@ public class EthFeeHistoryTest {
 
   @Test
   public void feeValuesDontGoPastHighestBlock() {
-    final ProtocolSpec londonSpec = mock(ProtocolSpec.class);
-    when(londonSpec.getFeeMarket()).thenReturn(FeeMarket.london(5));
-    when(protocolSchedule.getForNextBlockHeader(
-            eq(blockchain.getChainHeadHeader()),
-            eq(blockchain.getChainHeadHeader().getTimestamp())))
-        .thenReturn(londonSpec);
     double[] percentile = new double[] {100.0};
 
     final Object second =
@@ -345,10 +374,82 @@ public class EthFeeHistoryTest {
     assertThat(((ImmutableFeeHistoryResult) feeObject).getReward().size()).isEqualTo(blockCount);
     assertThat(((ImmutableFeeHistoryResult) feeObject).getGasUsedRatio().size())
         .isEqualTo(blockCount);
+    assertThat(((ImmutableFeeHistoryResult) feeObject).getBaseFeePerBlobGas().size())
+        .isEqualTo(blockCount + 1);
+    assertThat(((ImmutableFeeHistoryResult) feeObject).getBlobGasUsedRatio().size())
+        .isEqualTo(blockCount);
+  }
+
+  @Test
+  public void shouldCalculateBlobFeeCorrectly_preBlob() {
+    assertBlobBaseFee(List.of(Wei.ZERO, Wei.ZERO));
+  }
+
+  @Test
+  public void shouldCalculateBlobFeeCorrectly_postBlob() {
+    mockPostBlobFork();
+    assertBlobBaseFee(List.of(Wei.ONE, Wei.ONE));
+  }
+
+  @Test
+  public void shouldCalculateBlobFeeCorrectly_transitionFork() {
+    mockTransitionBlobFork();
+    assertBlobBaseFee(List.of(Wei.ZERO, Wei.ONE));
+  }
+
+  private void mockFork() {
+    final ProtocolSpec londonSpec = mock(ProtocolSpec.class);
+    when(londonSpec.getGasCalculator()).thenReturn(new LondonGasCalculator());
+    when(londonSpec.getFeeMarket()).thenReturn(FeeMarket.london(5));
+    when(londonSpec.getGasLimitCalculator()).thenReturn(mock(GasLimitCalculator.class));
+
+    when(protocolSchedule.getByBlockHeader(any())).thenReturn(londonSpec);
+    when(protocolSchedule.getForNextBlockHeader(any(), anyLong())).thenReturn(londonSpec);
+  }
+
+  private void mockPostBlobFork() {
+    final ProtocolSpec cancunSpec = mock(ProtocolSpec.class);
+    when(cancunSpec.getGasCalculator()).thenReturn(new CancunGasCalculator());
+    when(cancunSpec.getFeeMarket()).thenReturn(FeeMarket.cancun(5, Optional.empty()));
+    when(cancunSpec.getGasLimitCalculator())
+        .thenReturn(mock(CancunTargetingGasLimitCalculator.class));
+    when(protocolSchedule.getByBlockHeader(any())).thenReturn(cancunSpec);
+    when(protocolSchedule.getForNextBlockHeader(any(), anyLong())).thenReturn(cancunSpec);
+  }
+
+  private void mockTransitionBlobFork() {
+    final ProtocolSpec cancunSpec = mock(ProtocolSpec.class);
+    when(cancunSpec.getGasCalculator()).thenReturn(new CancunGasCalculator());
+    when(cancunSpec.getFeeMarket()).thenReturn(FeeMarket.cancun(5, Optional.empty()));
+    when(cancunSpec.getGasLimitCalculator())
+        .thenReturn(mock(CancunTargetingGasLimitCalculator.class));
+    when(protocolSchedule.getForNextBlockHeader(any(), anyLong())).thenReturn(cancunSpec);
+  }
+
+  private void assertBlobBaseFee(final List<Wei> baseFeePerBlobGas) {
+    final Object latest = ((JsonRpcSuccessResponse) feeHistoryRequest("0x1", "latest")).getResult();
+    assertThat(latest)
+        .isEqualTo(
+            FeeHistory.FeeHistoryResult.from(
+                ImmutableFeeHistory.builder()
+                    .oldestBlock(10)
+                    .baseFeePerGas(List.of(Wei.of(25496L), Wei.of(28683L)))
+                    .gasUsedRatio(List.of(0.9999999992132459))
+                    .baseFeePerBlobGas(baseFeePerBlobGas)
+                    .blobGasUsedRatio(List.of(0.0))
+                    .build()));
   }
 
   private JsonRpcResponse feeHistoryRequest(final Object... params) {
     return method.response(
         new JsonRpcRequestContext(new JsonRpcRequest("2.0", "eth_feeHistory", params)));
+  }
+
+  private BlockchainQueries mockBlockchainQueries(
+      final Blockchain blockchain, final Wei gasPriceLowerBound) {
+    final var blockchainQueries = mock(BlockchainQueries.class);
+    when(blockchainQueries.getBlockchain()).thenReturn(blockchain);
+    when(blockchainQueries.gasPriceLowerBound()).thenReturn(gasPriceLowerBound);
+    return blockchainQueries;
   }
 }

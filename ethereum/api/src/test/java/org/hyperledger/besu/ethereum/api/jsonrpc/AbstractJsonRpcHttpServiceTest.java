@@ -21,8 +21,10 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.config.StubGenesisConfigOptions;
+import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.ApiConfiguration;
+import org.hyperledger.besu.ethereum.api.graphql.GraphQLConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.health.HealthService;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.filter.FilterIdGenerator;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.filter.FilterManager;
@@ -34,7 +36,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.WebSocketConfiguratio
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.blockcreation.PoWMiningCoordinator;
 import org.hyperledger.besu.ethereum.core.BlockchainSetupUtil;
-import org.hyperledger.besu.ethereum.core.MiningParameters;
+import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.PrivacyParameters;
 import org.hyperledger.besu.ethereum.core.Synchronizer;
 import org.hyperledger.besu.ethereum.core.Transaction;
@@ -45,10 +47,11 @@ import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.ethereum.p2p.network.P2PNetwork;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
 import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
-import org.hyperledger.besu.ethereum.worldstate.DataStorageFormat;
+import org.hyperledger.besu.ethereum.transaction.TransactionSimulator;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.metrics.prometheus.MetricsConfiguration;
 import org.hyperledger.besu.nat.NatService;
+import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 import org.hyperledger.besu.testutil.BlockTestUtil.ChainResources;
 
 import java.math.BigInteger;
@@ -75,7 +78,9 @@ public abstract class AbstractJsonRpcHttpServiceTest {
 
   protected BlockchainSetupUtil blockchainSetupUtil;
 
-  protected static String CLIENT_VERSION = "TestClientVersion/0.1.0";
+  protected static final String CLIENT_NODE_NAME = "TestClientVersion/0.1.0";
+  protected static final String CLIENT_VERSION = "0.1.0";
+  protected static final String CLIENT_COMMIT = "12345678";
   protected static final BigInteger NETWORK_ID = BigInteger.valueOf(123);
   protected static final Collection<String> JSON_RPC_APIS =
       Arrays.asList(
@@ -134,7 +139,7 @@ public abstract class AbstractJsonRpcHttpServiceTest {
     final Synchronizer synchronizerMock = mock(Synchronizer.class);
     final P2PNetwork peerDiscoveryMock = mock(P2PNetwork.class);
     final TransactionPool transactionPoolMock = mock(TransactionPool.class);
-    final MiningParameters miningParameters = mock(MiningParameters.class);
+    final MiningConfiguration miningConfiguration = mock(MiningConfiguration.class);
     final PoWMiningCoordinator miningCoordinatorMock = mock(PoWMiningCoordinator.class);
     when(transactionPoolMock.addTransactionViaApi(any(Transaction.class)))
         .thenReturn(ValidationResult.valid());
@@ -143,9 +148,14 @@ public abstract class AbstractJsonRpcHttpServiceTest {
         .thenReturn(ValidationResult.invalid(TransactionInvalidReason.NONCE_TOO_LOW));
     final PrivacyParameters privacyParameters = mock(PrivacyParameters.class);
 
+    when(miningConfiguration.getCoinbase()).thenReturn(Optional.of(Address.ZERO));
+
     final BlockchainQueries blockchainQueries =
         new BlockchainQueries(
-            blockchainSetupUtil.getBlockchain(), blockchainSetupUtil.getWorldArchive());
+            blockchainSetupUtil.getProtocolSchedule(),
+            blockchainSetupUtil.getBlockchain(),
+            blockchainSetupUtil.getWorldArchive(),
+            miningConfiguration);
     final FilterIdGenerator filterIdGenerator = mock(FilterIdGenerator.class);
     final FilterRepository filterRepository = new FilterRepository();
     when(filterIdGenerator.nextId()).thenReturn("0x1");
@@ -163,9 +173,19 @@ public abstract class AbstractJsonRpcHttpServiceTest {
 
     final NatService natService = new NatService(Optional.empty());
 
+    final var transactionSimulator =
+        new TransactionSimulator(
+            blockchainSetupUtil.getBlockchain(),
+            blockchainSetupUtil.getWorldArchive(),
+            blockchainSetupUtil.getProtocolSchedule(),
+            miningConfiguration,
+            0L);
+
     return new JsonRpcMethodsFactory()
         .methods(
+            CLIENT_NODE_NAME,
             CLIENT_VERSION,
+            CLIENT_COMMIT,
             NETWORK_ID,
             new StubGenesisConfigOptions(),
             peerDiscoveryMock,
@@ -175,7 +195,7 @@ public abstract class AbstractJsonRpcHttpServiceTest {
             protocolContext,
             filterManager,
             transactionPoolMock,
-            miningParameters,
+            miningConfiguration,
             miningCoordinatorMock,
             new NoOpMetricsSystem(),
             supportedCapabilities,
@@ -186,13 +206,15 @@ public abstract class AbstractJsonRpcHttpServiceTest {
             config,
             mock(WebSocketConfiguration.class),
             mock(MetricsConfiguration.class),
+            mock(GraphQLConfiguration.class),
             natService,
             new HashMap<>(),
             folder,
             mock(EthPeers.class),
             syncVertx,
             mock(ApiConfiguration.class),
-            Optional.empty());
+            Optional.empty(),
+            transactionSimulator);
   }
 
   protected void startService() throws Exception {

@@ -1,5 +1,5 @@
 /*
- * Copyright Hyperledger Besu Contributors.
+ * Copyright contributors to Hyperledger Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -41,25 +41,31 @@ public class ConfigurationOverviewBuilder {
 
   private String network;
   private BigInteger networkId;
+  private String profile;
   private boolean hasCustomGenesis;
   private String customGenesisFileName;
   private String dataStorage;
   private String syncMode;
+  private Integer syncMinPeers;
   private Integer rpcPort;
   private Collection<String> rpcHttpApis;
   private Integer enginePort;
   private Collection<String> engineApis;
   private String engineJwtFilePath;
   private boolean isHighSpec = false;
-  private boolean isTrieLogPruningEnabled = false;
-  private long trieLogRetentionThreshold = 0;
-  private Integer trieLogPruningLimit = null;
+  private boolean isLimitTrieLogsEnabled = false;
+  private long trieLogRetentionLimit = 0;
+  private Integer trieLogsPruningWindowSize = null;
+  private boolean isSnapServerEnabled = false;
+  private boolean isSnapSyncBftEnabled = false;
   private TransactionPoolConfiguration.Implementation txPoolImplementation;
   private EvmConfiguration.WorldUpdaterMode worldStateUpdateMode;
   private Map<String, String> environment;
   private BesuPluginContextImpl besuPluginContext;
 
   /**
+   * Create a new ConfigurationOverviewBuilder.
+   *
    * @param logger the logger
    */
   public ConfigurationOverviewBuilder(final Logger logger) {
@@ -85,6 +91,17 @@ public class ConfigurationOverviewBuilder {
    */
   public ConfigurationOverviewBuilder setNetworkId(final BigInteger networkId) {
     this.networkId = networkId;
+    return this;
+  }
+
+  /**
+   * Sets profile.
+   *
+   * @param profile the profile
+   * @return the profile
+   */
+  public ConfigurationOverviewBuilder setProfile(final String profile) {
+    this.profile = profile;
     return this;
   }
 
@@ -129,6 +146,17 @@ public class ConfigurationOverviewBuilder {
    */
   public ConfigurationOverviewBuilder setSyncMode(final String syncMode) {
     this.syncMode = syncMode;
+    return this;
+  }
+
+  /**
+   * Sets sync min peers.
+   *
+   * @param syncMinPeers number of min peers for sync
+   * @return the builder
+   */
+  public ConfigurationOverviewBuilder setSyncMinPeers(final int syncMinPeers) {
+    this.syncMinPeers = syncMinPeers;
     return this;
   }
 
@@ -187,34 +215,56 @@ public class ConfigurationOverviewBuilder {
   }
 
   /**
-   * Sets trie log pruning enabled
+   * Sets limit trie logs enabled
    *
    * @return the builder
    */
-  public ConfigurationOverviewBuilder setTrieLogPruningEnabled() {
-    isTrieLogPruningEnabled = true;
+  public ConfigurationOverviewBuilder setLimitTrieLogsEnabled() {
+    isLimitTrieLogsEnabled = true;
     return this;
   }
 
   /**
-   * Sets trie log retention threshold
+   * Sets trie log retention limit
    *
-   * @param threshold the number of blocks to retain trie logs for
+   * @param limit the number of blocks to retain trie logs for
    * @return the builder
    */
-  public ConfigurationOverviewBuilder setTrieLogRetentionThreshold(final long threshold) {
-    trieLogRetentionThreshold = threshold;
+  public ConfigurationOverviewBuilder setTrieLogRetentionLimit(final long limit) {
+    trieLogRetentionLimit = limit;
     return this;
   }
 
   /**
-   * Sets trie log pruning limit
+   * Sets snap server enabled/disabled
    *
-   * @param limit the max number of blocks to load and prune trie logs for at startup
+   * @param snapServerEnabled bool to indicate if snap server is enabled
    * @return the builder
    */
-  public ConfigurationOverviewBuilder setTrieLogPruningLimit(final int limit) {
-    trieLogPruningLimit = limit;
+  public ConfigurationOverviewBuilder setSnapServerEnabled(final boolean snapServerEnabled) {
+    isSnapServerEnabled = snapServerEnabled;
+    return this;
+  }
+
+  /**
+   * Sets snap sync BFT enabled/disabled
+   *
+   * @param snapSyncBftEnabled bool to indicate if snap sync for BFT is enabled
+   * @return the builder
+   */
+  public ConfigurationOverviewBuilder setSnapSyncBftEnabled(final boolean snapSyncBftEnabled) {
+    isSnapSyncBftEnabled = snapSyncBftEnabled;
+    return this;
+  }
+
+  /**
+   * Sets trie logs pruning window size
+   *
+   * @param size the max number of blocks to load and prune trie logs for at startup
+   * @return the builder
+   */
+  public ConfigurationOverviewBuilder setTrieLogsPruningWindowSize(final int size) {
+    trieLogsPruningWindowSize = size;
     return this;
   }
 
@@ -290,12 +340,21 @@ public class ConfigurationOverviewBuilder {
       lines.add("Network Id: " + networkId);
     }
 
+    if (profile != null) {
+      lines.add("Profile: " + profile);
+    }
+
     if (dataStorage != null) {
       lines.add("Data storage: " + dataStorage);
     }
 
     if (syncMode != null) {
-      lines.add("Sync mode: " + syncMode);
+      lines.add(
+          "Sync mode: " + syncMode + (syncMode.equalsIgnoreCase("FAST") ? " (Deprecated)" : ""));
+    }
+
+    if (syncMinPeers != null) {
+      lines.add("Sync min peers: " + syncMinPeers);
     }
 
     if (rpcHttpApis != null) {
@@ -323,13 +382,21 @@ public class ConfigurationOverviewBuilder {
 
     lines.add("Using " + worldStateUpdateMode + " worldstate update mode");
 
-    if (isTrieLogPruningEnabled) {
+    if (isSnapServerEnabled) {
+      lines.add("Experimental Snap Sync server enabled");
+    }
+
+    if (isSnapSyncBftEnabled) {
+      lines.add("Experimental Snap Sync for BFT enabled");
+    }
+
+    if (isLimitTrieLogsEnabled) {
       final StringBuilder trieLogPruningString = new StringBuilder();
       trieLogPruningString
-          .append("Trie log pruning enabled: retention: ")
-          .append(trieLogRetentionThreshold);
-      if (trieLogPruningLimit != null) {
-        trieLogPruningString.append("; prune limit: ").append(trieLogPruningLimit);
+          .append("Limit trie logs enabled: retention: ")
+          .append(trieLogRetentionLimit);
+      if (trieLogsPruningWindowSize != null) {
+        trieLogPruningString.append("; prune window: ").append(trieLogsPruningWindowSize);
       }
       lines.add(trieLogPruningString.toString());
     }
@@ -367,14 +434,18 @@ public class ConfigurationOverviewBuilder {
   private void detectJemalloc(final List<String> lines) {
     Optional.ofNullable(Objects.isNull(environment) ? null : environment.get("BESU_USING_JEMALLOC"))
         .ifPresentOrElse(
-            t -> {
+            jemallocEnabled -> {
               try {
-                final String version = PlatformDetector.getJemalloc();
-                lines.add("jemalloc: " + version);
+                if (Boolean.parseBoolean(jemallocEnabled)) {
+                  final String version = PlatformDetector.getJemalloc();
+                  lines.add("jemalloc: " + version);
+                } else {
+                  logger.warn(
+                      "besu_using_jemalloc is present but is not set to true, jemalloc library not loaded");
+                }
               } catch (final Throwable throwable) {
                 logger.warn(
-                    "BESU_USING_JEMALLOC is present but we failed to load jemalloc library to get the version",
-                    throwable);
+                    "besu_using_jemalloc is present but we failed to load jemalloc library to get the version");
               }
             },
             () -> {

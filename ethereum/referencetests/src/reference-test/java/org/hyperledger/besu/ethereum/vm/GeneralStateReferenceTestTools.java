@@ -15,20 +15,18 @@
 package org.hyperledger.besu.ethereum.vm;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assumptions.assumeThat;
 
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import org.apache.tuweni.bytes.Bytes32;
+
 import org.hyperledger.besu.datatypes.BlobGas;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderBuilder;
-import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
@@ -40,18 +38,12 @@ import org.hyperledger.besu.ethereum.referencetests.ReferenceTestBlockchain;
 import org.hyperledger.besu.ethereum.referencetests.ReferenceTestProtocolSchedules;
 import org.hyperledger.besu.ethereum.referencetests.ReferenceTestWorldState;
 import org.hyperledger.besu.ethereum.rlp.RLP;
-import org.hyperledger.besu.evm.EVM;
-import org.hyperledger.besu.evm.EvmSpecVersion;
 import org.hyperledger.besu.evm.account.Account;
-import org.hyperledger.besu.evm.account.AccountState;
-import org.hyperledger.besu.evm.internal.EvmConfiguration.WorldUpdaterMode;
 import org.hyperledger.besu.evm.log.Log;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.testutil.JsonTestParameters;
 
 public class GeneralStateReferenceTestTools {
-  private static final ReferenceTestProtocolSchedules REFERENCE_TEST_PROTOCOL_SCHEDULES =
-      ReferenceTestProtocolSchedules.create();
   private static final List<String> SPECS_PRIOR_TO_DELETING_EMPTY_ACCOUNTS =
       Arrays.asList("Frontier", "Homestead", "EIP150");
 
@@ -60,7 +52,7 @@ public class GeneralStateReferenceTestTools {
   }
 
   private static ProtocolSpec protocolSpec(final String name) {
-    return REFERENCE_TEST_PROTOCOL_SCHEDULES
+    return ReferenceTestProtocolSchedules.getInstance()
         .getByName(name)
         .getByBlockHeader(BlockHeaderBuilder.createDefault().buildBlockHeader());
   }
@@ -72,7 +64,7 @@ public class GeneralStateReferenceTestTools {
         System.getProperty(
             "test.ethereum.state.eips",
             "Frontier,Homestead,EIP150,EIP158,Byzantium,Constantinople,ConstantinopleFix,Istanbul,Berlin,"
-                + "London,Merge,Shanghai,Cancun,Prague,Osaka,Bogota");
+                + "London,Merge,Paris,Shanghai,Cancun,Prague,Osaka,Amsterdam,Bogota,Polis,Bangkok");
     EIPS_TO_RUN = Arrays.asList(eips.split(","));
   }
 
@@ -122,24 +114,14 @@ public class GeneralStateReferenceTestTools {
     return params.generate(filePath);
   }
 
+  @SuppressWarnings("java:S5960") // this is actually test support code, not production code
   public static void executeTest(final GeneralStateTestCaseEipSpec spec) {
     final BlockHeader blockHeader = spec.getBlockHeader();
     final ReferenceTestWorldState initialWorldState = spec.getInitialWorldState();
-    final Transaction transaction = spec.getTransaction();
+    final Transaction transaction = spec.getTransaction(0);
     ProtocolSpec protocolSpec = protocolSpec(spec.getFork());
 
-    EVM evm = protocolSpec.getEvm();
-    if (evm.getEvmConfiguration().worldUpdaterMode() == WorldUpdaterMode.JOURNALED) {
-      assumeThat(
-              initialWorldState
-                  .streamAccounts(Bytes32.ZERO, Integer.MAX_VALUE)
-                  .anyMatch(AccountState::isEmpty))
-          .withFailMessage("Journaled account configured and empty account detected")
-          .isFalse();
-      assumeThat(EvmSpecVersion.SPURIOUS_DRAGON.compareTo(evm.getEvmVersion()) > 0)
-          .withFailMessage("Journaled account configured and fork prior to the merge specified")
-          .isFalse();
-    }
+    BlockchainReferenceTestTools.verifyJournaledEVMAccountCompatability(initialWorldState, protocolSpec);
 
     // Sometimes the tests ask us assemble an invalid transaction.  If we have
     // no valid transaction then there is no test.  GeneralBlockChain tests
@@ -151,7 +133,7 @@ public class GeneralStateReferenceTestTools {
       return;
     }
 
-    final MutableWorldState worldState = initialWorldState.copy();
+    final ReferenceTestWorldState worldState = initialWorldState.copy();
     // Several of the GeneralStateTests check if the transaction could potentially
     // consume more gas than is left for the block it's attempted to be included in.
     // This check is performed within the `BlockImporter` rather than inside the
@@ -169,12 +151,11 @@ public class GeneralStateReferenceTestTools {
             .blobGasPricePerGas(blockHeader.getExcessBlobGas().orElse(BlobGas.ZERO));
     final TransactionProcessingResult result =
         processor.processTransaction(
-            blockchain,
             worldStateUpdater,
             blockHeader,
             transaction,
             blockHeader.getCoinbase(),
-            new CachingBlockHashLookup(blockHeader, blockchain),
+            protocolSpec.getBlockHashProcessor().createBlockHashLookup(blockchain, blockHeader),
             false,
             TransactionValidationParams.processingBlock(),
             blobGasPrice);
@@ -193,6 +174,7 @@ public class GeneralStateReferenceTestTools {
       worldStateUpdater.deleteAccount(coinbase.getAddress());
     }
     worldStateUpdater.commit();
+    worldState.processExtraStateStorageFormatValidation(blockHeader);
     worldState.persist(blockHeader);
 
     // Check the world state root hash.

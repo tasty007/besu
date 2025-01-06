@@ -35,8 +35,6 @@ import org.hyperledger.besu.crypto.Hash;
 import org.hyperledger.besu.crypto.SignatureAlgorithm;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.cryptoservices.NodeKey;
-import org.hyperledger.besu.ethereum.forkid.ForkId;
-import org.hyperledger.besu.ethereum.forkid.ForkIdManager;
 import org.hyperledger.besu.ethereum.p2p.discovery.DiscoveryPeer;
 import org.hyperledger.besu.ethereum.p2p.discovery.Endpoint;
 import org.hyperledger.besu.ethereum.p2p.discovery.PeerDiscoveryStatus;
@@ -57,10 +55,13 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
+import javax.annotation.Nonnull;
 
 import com.google.common.base.Ticker;
 import com.google.common.cache.Cache;
@@ -77,7 +78,6 @@ import org.ethereum.beacon.discovery.schema.IdentitySchema;
 import org.ethereum.beacon.discovery.schema.IdentitySchemaInterpreter;
 import org.ethereum.beacon.discovery.schema.NodeRecord;
 import org.ethereum.beacon.discovery.schema.NodeRecordFactory;
-import org.jetbrains.annotations.NotNull;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -470,14 +470,13 @@ public class PeerDiscoveryControllerTest {
             .build();
 
     // Mock the creation of the PING packet, so that we can control the hash, which gets validated
-    // when
-    // processing the PONG.
+    // when processing the PONG.
     final PingPacketData mockPing =
         PingPacketData.create(
             Optional.ofNullable(localPeer.getEndpoint()), peers.get(0).getEndpoint(), UInt64.ONE);
     final Packet mockPacket = Packet.create(PacketType.PING, mockPing, nodeKeys.get(0));
     mockPingPacketCreation(mockPacket);
-    controller.setRetryDelayFunction((prev) -> 999999999L);
+    controller.setRetryDelayFunction(PeerDiscoveryControllerTest::longDelayFunction);
     controller.start();
 
     // Verify that the PING was sent.
@@ -508,11 +507,68 @@ public class PeerDiscoveryControllerTest {
         .isEqualTo(PeerDiscoveryStatus.BONDED);
   }
 
+  @Test
+  public void addedToInvalidIpsWhenConnectTimedOut() {
+    // Create a peer
+    final List<NodeKey> nodeKeys = PeerDiscoveryTestHelper.generateNodeKeys(1);
+    final NodeKey nodeKey = nodeKeys.getFirst();
+    final DiscoveryPeer peerThatTimesOut = helper.createDiscoveryPeers(nodeKeys).getFirst();
+
+    // Initialize the peer controller, using a rlpx agent that times out when asked to connect.
+    // Set a high controller refresh interval and a high timeout threshold, to avoid retries
+    // getting in the way of this test.
+    final OutboundMessageHandler outboundMessageHandler = mock(OutboundMessageHandler.class);
+    RlpxAgent rlpxAgentMock = mock(RlpxAgent.class);
+    when(rlpxAgentMock.connect(any()))
+        .thenReturn(CompletableFuture.failedFuture(new Exception(new TimeoutException())));
+    controller =
+        getControllerBuilder()
+            .outboundMessageHandler(outboundMessageHandler)
+            .rlpxAgent(rlpxAgentMock)
+            .build();
+
+    // Mock the creation of the PING packet, so that we can control the hash, which gets validated
+    // when processing the PONG.
+    final PingPacketData mockPing =
+        PingPacketData.create(
+            Optional.ofNullable(localPeer.getEndpoint()),
+            peerThatTimesOut.getEndpoint(),
+            UInt64.ONE);
+    final Packet mockPacket = Packet.create(PacketType.PING, mockPing, nodeKey);
+    mockPingPacketCreation(mockPacket);
+    controller.setRetryDelayFunction(PeerDiscoveryControllerTest::longDelayFunction);
+    controller.start();
+
+    controller.handleBondingRequest(peerThatTimesOut);
+
+    // Verify that the PING was sent.
+    verify(outboundMessageHandler, times(1))
+        .send(eq(peerThatTimesOut), matchPacketOfType(PacketType.PING));
+
+    // Simulate a PONG message from the peer.
+    respondWithPong(peerThatTimesOut, nodeKey, mockPacket.getHash());
+
+    final List<DiscoveryPeer> peersInTable = controller.streamDiscoveredPeers().toList();
+    assertThat(peersInTable).hasSize(0);
+    assertThat(peersInTable).doesNotContain(peerThatTimesOut);
+
+    // Try bonding again, and check that the peer is not sent the PING packet again
+    controller.handleBondingRequest(peerThatTimesOut);
+
+    // verify that the ping was not sent, no additional interaction
+    verify(outboundMessageHandler, times(1))
+        .send(eq(peerThatTimesOut), matchPacketOfType(PacketType.PING));
+  }
+
   private ControllerBuilder getControllerBuilder() {
+    final RlpxAgent rlpxAgent = mock(RlpxAgent.class);
+    when(rlpxAgent.connect(any()))
+        .thenReturn(CompletableFuture.failedFuture(new RuntimeException()));
     return ControllerBuilder.create()
         .nodeKey(localNodeKey)
         .localPeer(localPeer)
-        .peerTable(peerTable);
+        .peerTable(peerTable)
+        .rlpxAgent(rlpxAgent);
   }
 
   private void respondWithPong(
@@ -546,7 +602,7 @@ public class PeerDiscoveryControllerTest {
 
     mockPingPacketCreation(pingPacket);
 
-    controller.setRetryDelayFunction((prev) -> 999999999L);
+    controller.setRetryDelayFunction(PeerDiscoveryControllerTest::longDelayFunction);
     controller.start();
 
     verify(outboundMessageHandler, times(1))
@@ -996,7 +1052,7 @@ public class PeerDiscoveryControllerTest {
             .build();
     mockPingPacketCreation(pingPacket);
 
-    controller.setRetryDelayFunction((prev) -> 999999999L);
+    controller.setRetryDelayFunction(PeerDiscoveryControllerTest::longDelayFunction);
     controller.start();
 
     verify(outboundMessageHandler, times(1)).send(any(), matchPacketOfType(PacketType.PING));
@@ -1480,14 +1536,12 @@ public class PeerDiscoveryControllerTest {
   }
 
   @Test
-  public void shouldFiltersOnForkIdSuccess() {
+  public void forkIdShouldBeAvailableIfEnrPacketContainsForkId() {
     final List<NodeKey> nodeKeys = PeerDiscoveryTestHelper.generateNodeKeys(1);
     final List<DiscoveryPeer> peers = helper.createDiscoveryPeers(nodeKeys);
-    final ForkIdManager forkIdManager = mock(ForkIdManager.class);
     final DiscoveryPeer sender = peers.get(0);
-    final Packet enrPacket = prepareForForkIdCheck(forkIdManager, nodeKeys, sender, true);
+    final Packet enrPacket = prepareForForkIdCheck(nodeKeys, sender, true);
 
-    when(forkIdManager.peerCheck(any(ForkId.class))).thenReturn(true);
     controller.onMessage(enrPacket, sender);
 
     final Optional<DiscoveryPeer> maybePeer =
@@ -1502,34 +1556,11 @@ public class PeerDiscoveryControllerTest {
   }
 
   @Test
-  public void shouldFiltersOnForkIdFailure() {
-    final List<NodeKey> nodeKeys = PeerDiscoveryTestHelper.generateNodeKeys(1);
-    final List<DiscoveryPeer> peers = helper.createDiscoveryPeers(nodeKeys);
-    final ForkIdManager forkIdManager = mock(ForkIdManager.class);
-    final DiscoveryPeer sender = peers.get(0);
-    final Packet enrPacket = prepareForForkIdCheck(forkIdManager, nodeKeys, sender, true);
-
-    when(forkIdManager.peerCheck(any(ForkId.class))).thenReturn(false);
-    controller.onMessage(enrPacket, sender);
-
-    final Optional<DiscoveryPeer> maybePeer =
-        controller
-            .streamDiscoveredPeers()
-            .filter(p -> p.getId().equals(sender.getId()))
-            .findFirst();
-
-    assertThat(maybePeer.isPresent()).isTrue();
-    assertThat(maybePeer.get().getForkId().isPresent()).isTrue();
-    verify(controller, never()).connectOnRlpxLayer(eq(maybePeer.get()));
-  }
-
-  @Test
   public void shouldStillCallConnectIfNoForkIdSent() {
     final List<NodeKey> nodeKeys = PeerDiscoveryTestHelper.generateNodeKeys(1);
     final List<DiscoveryPeer> peers = helper.createDiscoveryPeers(nodeKeys);
     final DiscoveryPeer sender = peers.get(0);
-    final Packet enrPacket =
-        prepareForForkIdCheck(mock(ForkIdManager.class), nodeKeys, sender, false);
+    final Packet enrPacket = prepareForForkIdCheck(nodeKeys, sender, false);
 
     controller.onMessage(enrPacket, sender);
 
@@ -1544,12 +1575,9 @@ public class PeerDiscoveryControllerTest {
     verify(controller, times(1)).connectOnRlpxLayer(eq(maybePeer.get()));
   }
 
-  @NotNull
+  @Nonnull
   private Packet prepareForForkIdCheck(
-      final ForkIdManager forkIdManager,
-      final List<NodeKey> nodeKeys,
-      final DiscoveryPeer sender,
-      final boolean sendForkId) {
+      final List<NodeKey> nodeKeys, final DiscoveryPeer sender, final boolean sendForkId) {
     final HashMap<PacketType, Bytes> packetTypeBytesHashMap = new HashMap<>();
     final OutboundMessageHandler outboundMessageHandler =
         (dp, pa) -> packetTypeBytesHashMap.put(pa.getType(), pa.getHash());
@@ -1573,7 +1601,6 @@ public class PeerDiscoveryControllerTest {
             .outboundMessageHandler(outboundMessageHandler)
             .enrCache(enrs)
             .filterOnForkId(true)
-            .forkIdManager(forkIdManager)
             .build();
 
     // Mock the creation of the PING packet, so that we can control the hash, which gets validated
@@ -1720,7 +1747,7 @@ public class PeerDiscoveryControllerTest {
     private Cache<Bytes, Packet> enrs =
         CacheBuilder.newBuilder().maximumSize(50).expireAfterWrite(10, TimeUnit.SECONDS).build();
     private boolean filterOnForkId = false;
-    private ForkIdManager forkIdManager;
+    private RlpxAgent rlpxAgent;
 
     public static ControllerBuilder create() {
       return new ControllerBuilder();
@@ -1776,8 +1803,8 @@ public class PeerDiscoveryControllerTest {
       return this;
     }
 
-    public ControllerBuilder forkIdManager(final ForkIdManager forkIdManager) {
-      this.forkIdManager = forkIdManager;
+    public ControllerBuilder rlpxAgent(final RlpxAgent rlpxAgent) {
+      this.rlpxAgent = rlpxAgent;
       return this;
     }
 
@@ -1789,6 +1816,7 @@ public class PeerDiscoveryControllerTest {
       if (peerTable == null) {
         peerTable = new PeerTable(localPeer.getId());
       }
+
       return spy(
           PeerDiscoveryController.builder()
               .nodeKey(nodeKey)
@@ -1803,9 +1831,8 @@ public class PeerDiscoveryControllerTest {
               .peerPermissions(peerPermissions)
               .metricsSystem(new NoOpMetricsSystem())
               .cacheForEnrRequests(enrs)
-              .forkIdManager(forkIdManager == null ? mock(ForkIdManager.class) : forkIdManager)
               .filterOnEnrForkId(filterOnForkId)
-              .rlpxAgent(mock(RlpxAgent.class))
+              .rlpxAgent(rlpxAgent)
               .build());
     }
   }
